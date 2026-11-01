@@ -1,11 +1,11 @@
-"""End of party: one page with everyone's photos, a GIF of the whole night, and a copy of
-it all in Dropbox so the page outlives the booth.
+"""The party page: everyone's photos on one page, kept up to date through the night.
 
-build() makes party/<token>/ on the PC: a self-contained little website (index.html plus
-the images). The booth serves it at /p/<token>/ (reachable through the tunnel while the
-booth runs), and the same folder is uploaded to Dropbox under _party/<date-time>/ with a
-shared folder link, so guests can still grab everything after the PC is off. The folder
-can also be dropped onto any static host (GitHub Pages and the like) as-is.
+party/live/ on the PC is a self-contained little website (index.html plus the images).
+Every finished set is added to it automatically; "Build party page" in the admin panel
+rebuilds it from scratch and makes the video of the night. The booth serves the folder
+at /p/live/ (reachable through the tunnel while the booth runs), and it is published to
+a folder of a GitHub repo (party_repo in config.json, served by GitHub Pages) or, with no
+repo set, copied to Dropbox under _party/, so the page outlives the booth.
 """
 
 import json
@@ -14,14 +14,17 @@ import subprocess
 import tempfile
 import threading
 import time
-import uuid
 from pathlib import Path
 
 from PIL import Image, ImageOps
 
-STATE = {"token": None, "stage": "idle", "message": "", "url": None, "dropbox": None,
-         "sessions": 0, "done": 0, "total": 0, "error": None}
+FOLDER = "live"
+STATE = {"stage": "idle", "message": "", "url": None, "dropbox": None, "sessions": 0,
+         "done": 0, "total": 0, "error": None, "updated": None}
 _lock = threading.Lock()
+_publish_lock = threading.Lock()
+_dirty = {"pending": False}
+_ctx = {}
 
 
 def _set(**kw):
@@ -34,25 +37,66 @@ def status():
         return dict(STATE)
 
 
-def _when(meta):
-    return time.strftime("%b %d, %I:%M %p", time.localtime(meta.get("created", 0))).replace(" 0", " ")
+def setup(root: Path, sessions: Path, cfg, read_meta, exporter, public_base):
+    """Called once by the server; remembers where things are."""
+    _ctx.update(root=root, sessions=sessions, cfg=cfg, read_meta=read_meta, exporter=exporter,
+                public_base=public_base)
+    out = root / "party" / FOLDER
+    if (out / "index.html").exists():
+        _set(stage="done", url=_page_url(), sessions=len(_load_sets(out)), message="Page from last time is still up.")
 
 
-def _compilation(frames, out, fps, width):
-    """Every photo of the night, in order, as one GIF (smaller than the session GIFs so
-    phones can load it)."""
-    ims = []
-    for p in frames:
-        im = ImageOps.exif_transpose(Image.open(p)).convert("RGB")
-        im.thumbnail((width, width))
-        ims.append(im)
-    if not ims:
-        return False
-    ims[0].save(out, format="GIF", save_all=True, append_images=ims[1:],
-                duration=int(1000 / fps), loop=0, optimize=True)
-    return True
+# ---------- the page folder ----------
+def _out():
+    return _ctx["root"] / "party" / FOLDER
 
 
+def _load_sets(out):
+    f = out / "sets.json"
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+
+
+def _copy_set(d, meta, out):
+    """Copy one session's GIF, 4-up and singles into the page folder; returns its entry."""
+    sd = out / d.name
+    sd.mkdir(parents=True, exist_ok=True)
+    item = {"id": d.name, "created": meta.get("created", 0), "gif": None, "print": None, "shots": []}
+    if (d / "animation.gif").exists():
+        shutil.copy2(d / "animation.gif", sd / "animation.gif")
+        item["gif"] = f"{d.name}/animation.gif"
+    src = d / "print_share.jpg" if (d / "print_share.jpg").exists() else d / "print.jpg"
+    if src.exists():
+        shutil.copy2(src, sd / "4up.jpg")
+        item["print"] = f"{d.name}/4up.jpg"
+    for i in range(meta.get("shots", 4)):
+        p = d / f"shot{i}_preview.jpg"
+        if not p.exists():
+            p = d / f"shot{i}.jpg"
+        if not p.exists():
+            continue
+        shutil.copy2(p, sd / f"photo{i + 1}.jpg")
+        item["shots"].append(f"{d.name}/photo{i + 1}.jpg")
+    return item
+
+
+def _write_page(out, sets, extra=None):
+    cfg = _ctx["cfg"]
+    sets = sorted(sets, key=lambda s: s["id"])
+    (out / "sets.json").write_text(json.dumps(sets), encoding="utf-8")
+    data = {"title": cfg.get("party_title") or "Party photos",
+            "video": "party.mp4" if (out / "party.mp4").exists() else None,
+            "gif": "party.gif" if (out / "party.gif").exists() and not (out / "party.mp4").exists() else None,
+            "sessions": list(reversed(sets)), "count": sum(len(s["shots"]) for s in sets)}
+    data.update(extra or {})
+    template = (_ctx["root"] / "static" / "party.html").read_text(encoding="utf-8")
+    (out / "index.html").write_text(template.replace("/*DATA*/", json.dumps(data)), encoding="utf-8")
+    _set(sessions=len(sets), updated=time.time())
+
+
+# ---------- the video of the night ----------
 def _video(frames, out, seconds, width):
     """Every photo of the night as one MP4 that runs `seconds` long. Needs the ffmpeg that
     imageio-ffmpeg installs; returns False (so the GIF is used) if it's missing."""
@@ -84,16 +128,52 @@ def _video(frames, out, seconds, width):
     return out.exists()
 
 
-def build(root: Path, sessions: Path, cfg, read_meta, exporter, public_base, title="Party photos"):
-    """Make the page now (fast), then upload it to Dropbox in the background.
-    Returns the new token; poll status() for the rest."""
-    token = uuid.uuid4().hex[:10]
-    out = root / "party" / token
-    out.mkdir(parents=True, exist_ok=True)
-    _set(token=token, stage="building", message="Collecting photos…", url=None, dropbox=None,
-         sessions=0, done=0, total=0, error=None)
+def _compilation(frames, out, fps, width):
+    ims = []
+    for p in frames:
+        im = ImageOps.exif_transpose(Image.open(p)).convert("RGB")
+        im.thumbnail((width, width))
+        ims.append(im)
+    if not ims:
+        return False
+    ims[0].save(out, format="GIF", save_all=True, append_images=ims[1:],
+                duration=int(1000 / fps), loop=0, optimize=True)
+    return True
 
-    items, frames = [], []
+
+# ---------- entry points ----------
+def add_session(d, meta):
+    """A set just finished: put it on the page and publish. Runs in the background."""
+    cfg = _ctx["cfg"]
+    if not cfg.get("party_auto", True) or not _ctx:
+        return
+
+    def work():
+        try:
+            out = _out()
+            out.mkdir(parents=True, exist_ok=True)
+            sets = [s for s in _load_sets(out) if s["id"] != d.name]
+            sets.append(_copy_set(d, meta, out))
+            _write_page(out, sets)
+            _set(url=_page_url(), stage=STATE["stage"] if STATE["stage"] == "uploading" else "done")
+            _publish()
+        except Exception as e:
+            print(f"[party] couldn't add {d.name}: {e}")
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def build():
+    """Admin: rebuild the page from every set in the gallery, make the video of the night,
+    then publish. Returns at once; poll status()."""
+    cfg, sessions, read_meta = _ctx["cfg"], _ctx["sessions"], _ctx["read_meta"]
+    out = _out()
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+    _set(stage="building", message="Collecting photos…", url=None, dropbox=None, sessions=0, done=0, total=0, error=None)
+
+    sets, frames = [], []
     for d in sorted((p for p in sessions.iterdir() if p.is_dir()), key=lambda p: p.name):
         try:
             meta = read_meta(d)
@@ -101,66 +181,69 @@ def build(root: Path, sessions: Path, cfg, read_meta, exporter, public_base, tit
             continue
         if not (d / "print.jpg").exists():
             continue
-        sd = out / d.name
-        sd.mkdir(exist_ok=True)
-        item = {"id": d.name, "name": _when(meta), "gif": None, "print": None, "shots": [],
-                "dropbox": exporter.share(d.name)[1] or ""}
-        if (d / "animation.gif").exists():
-            shutil.copy2(d / "animation.gif", sd / "animation.gif")
-            item["gif"] = f"{d.name}/animation.gif"
-        src = d / "print_share.jpg" if (d / "print_share.jpg").exists() else d / "print.jpg"
-        shutil.copy2(src, sd / "4up.jpg")
-        item["print"] = f"{d.name}/4up.jpg"
-        for i in range(meta.get("shots", 4)):
-            p = d / f"shot{i}_preview.jpg"
-            if not p.exists():
-                p = d / f"shot{i}.jpg"
-            if not p.exists():
-                continue
-            shutil.copy2(p, sd / f"photo{i + 1}.jpg")
-            item["shots"].append(f"{d.name}/photo{i + 1}.jpg")
-            frames.append(sd / f"photo{i + 1}.jpg")
-        items.append(item)
+        item = _copy_set(d, meta, out)
+        frames += [out / s for s in item["shots"]]
+        sets.append(item)
 
-    _set(sessions=len(items), message=f"Making the video of the night ({len(frames)} photos)…")
-    video = _video(frames, out / "party.mp4", cfg.get("party_video_seconds", 30), cfg.get("party_video_width", 720))
-    has_gif = False if video else _compilation(frames, out / "party.gif", cfg.get("gif_fps", 4), cfg.get("party_gif_width", 480))
+    _set(sessions=len(sets), message=f"Making the video of the night ({len(frames)} photos)…")
+    if not _video(frames, out / "party.mp4", cfg.get("party_video_seconds", 30), cfg.get("party_video_width", 720)):
+        _compilation(frames, out / "party.gif", cfg.get("gif_fps", 4), cfg.get("party_gif_width", 480))
+    _write_page(out, sets)
+    _set(url=_page_url(), stage="done", message="Page ready on the booth.")
+    threading.Thread(target=_publish, daemon=True).start()
 
-    data = {"title": title, "video": "party.mp4" if video else None, "gif": "party.gif" if has_gif else None,
-            "sessions": list(reversed(items)), "dropbox": None, "count": len(frames)}
-    template = (root / "static" / "party.html").read_text(encoding="utf-8")
 
-    def write_index():
-        (out / "index.html").write_text(template.replace("/*DATA*/", json.dumps(data)), encoding="utf-8")
-
-    write_index()
-    url = f"{public_base}/p/{token}/" if public_base else None
-    _set(url=url, stage="done", message="Page ready on the booth.")
-
+# ---------- publishing ----------
+def _page_url():
+    cfg = _ctx["cfg"]
     repo = cfg.get("party_repo")
     if repo:
-        _set(stage="uploading", message="Page ready. Publishing to GitHub…")
-        threading.Thread(target=_publish_github, args=(out, Path(repo).expanduser(), cfg), daemon=True).start()
-    elif exporter.dbx:
-        _set(stage="uploading", message="Page ready. Copying to Dropbox…")
-        threading.Thread(target=_publish_dropbox, args=(out, data, write_index, exporter), daemon=True).start()
-    return token
+        url = cfg.get("party_url")
+        if not url:
+            try:
+                origin = _git(Path(repo).expanduser(), "remote", "get-url", "origin")
+                path = origin.replace("git@github.com:", "").replace("https://github.com/", "").removesuffix(".git").rstrip("/")
+                user, name = path.split("/", 1)
+                url = f"https://{user}.github.io/{name}/{(cfg.get('party_repo_folder') or 'party').strip('/')}"
+            except Exception:
+                url = None
+        if url:
+            return url.rstrip("/") + "/"
+    base = _ctx["public_base"]()
+    return f"{base}/p/{FOLDER}/" if base else None
 
 
-def _publish_dropbox(out, data, write_index, exporter):
+def _publish():
+    """Push the page out. Calls while one is running are folded into one more run after it."""
+    _dirty["pending"] = True
+    if not _publish_lock.acquire(blocking=False):
+        return
     try:
-        remote = f"{exporter.remote_root}/_party/{time.strftime('%Y-%m-%d_%H-%M')}"
+        while _dirty["pending"]:
+            _dirty["pending"] = False
+            cfg, exporter = _ctx["cfg"], _ctx["exporter"]
+            if cfg.get("party_repo"):
+                _publish_github(_out(), Path(cfg["party_repo"]).expanduser(), cfg)
+            elif exporter.dbx:
+                _publish_dropbox(_out(), exporter)
+    finally:
+        _publish_lock.release()
+
+
+def _publish_dropbox(out, exporter):
+    _set(stage="uploading", message="Copying to Dropbox…")
+    try:
+        remote = f"{exporter.remote_root}/_party"
         files = [p for p in out.rglob("*") if p.is_file() and p.name != "index.html"]
         _set(total=len(files) + 1, done=0)
         exporter.dbx.create_folder(remote)
         link = exporter.dbx.share_link(remote)
-        data["dropbox"] = link
-        write_index()
+        _write_page(out, _load_sets(out), {"dropbox": link})
         for n, p in enumerate(files, 1):
             exporter.dbx.upload(p, f"{remote}/{p.relative_to(out).as_posix()}")
             _set(done=n, message=f"Copying to Dropbox… {n} of {len(files) + 1}")
         exporter.dbx.upload(out / "index.html", f"{remote}/index.html")
-        _set(done=len(files) + 1, dropbox=link, stage="done", message="Done. Everything is on Dropbox too.")
+        _set(done=len(files) + 1, dropbox=link, stage="done", error=None, message="Page is on Dropbox too.")
     except Exception as e:
         _set(stage="done", error=str(e), message=f"Page is up on the booth, but the Dropbox copy failed: {e}")
 
@@ -176,6 +259,7 @@ def _publish_github(out, repo, cfg):
     """Copy the page into a folder of a GitHub repo on this PC and push it, so GitHub
     Pages serves it at https://USER.github.io/REPO/FOLDER/ (party_url overrides that)."""
     folder = (cfg.get("party_repo_folder") or "party").strip("/")
+    _set(stage="uploading", message="Publishing to GitHub…")
     try:
         if not (repo / ".git").exists():
             raise RuntimeError(f"{repo} is not a git checkout")
@@ -192,13 +276,7 @@ def _publish_github(out, repo, cfg):
             _git(repo, "-c", "user.name=Photobooth", "-c", "user.email=photobooth@localhost",
                  "commit", "-q", "-m", f"Party page {time.strftime('%Y-%m-%d %H:%M')}")
             _git(repo, "push", "-q")
-        url = cfg.get("party_url")
-        if not url:
-            origin = _git(repo, "remote", "get-url", "origin")
-            path = origin.replace("git@github.com:", "").replace("https://github.com/", "").removesuffix(".git").rstrip("/")
-            user, name = path.split("/", 1)
-            url = f"https://{user}.github.io/{name}/{folder}"
-        url = url.rstrip("/") + "/"
-        _set(stage="done", url=url, message="Published to GitHub. The page updates a minute or two after each push.")
+        _set(stage="done", error=None, url=_page_url(),
+             message=f"Published to GitHub {time.strftime('%I:%M %p').lstrip('0')}. The page updates a minute or two after each push.")
     except Exception as e:
         _set(stage="done", error=str(e), message=f"Page is up on the booth, but publishing to GitHub failed: {e}")

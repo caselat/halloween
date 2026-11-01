@@ -14,26 +14,28 @@
   .hero video, .hero img { width: 100%; display: block; }
   .btn { display: block; width: 100%; font: inherit; font-size: 17px; font-weight: 800; padding: 14px;
          border-radius: 999px; border: 0; background: #a8ff1f; color: #12051f; margin: 0 0 8px; cursor: pointer; text-align: center; text-decoration: none; }
-  .btn.alt { background: #8a3cff; color: #fff6fe; }
   .btn:disabled { opacity: .6; }
-  .hint { color: rgba(255, 246, 254, .6); font-size: 13px; text-align: center; margin: 0 0 18px; }
-  details { border-top: 1px solid rgba(255, 246, 254, .18); }
-  summary { cursor: pointer; list-style: none; font-size: 20px; font-weight: 800; padding: 16px 0; display: flex; justify-content: space-between; align-items: center; }
+  .hint { color: rgba(255, 246, 254, .6); font-size: 13px; text-align: center; margin: 0 0 8px; }
+  .set { border-top: 1px solid rgba(255, 246, 254, .18); padding-top: 18px; margin-top: 18px; }
+  .set .gif { display: block; border-radius: 12px; overflow: hidden; background: #000; }
+  .set .gif img { width: 100%; display: block; }
+  details { margin-top: 2px; }
+  summary { cursor: pointer; list-style: none; font-size: 17px; font-weight: 800; padding: 12px 2px; display: flex; justify-content: space-between; align-items: center; }
   summary::-webkit-details-marker { display: none; }
-  summary::after { content: "+"; font-size: 26px; color: #a8ff1f; }
+  summary::after { content: "+"; font-size: 24px; line-height: 1; color: #a8ff1f; }
   details[open] summary::after { content: "–"; }
-  .pics { display: grid; gap: 10px; padding-bottom: 18px; }
+  .pics { display: grid; gap: 8px; padding-bottom: 10px; }
   .pics a { display: block; border-radius: 10px; overflow: hidden; background: #000; }
   .pics img { width: 100%; display: block; }
   .pics.two { grid-template-columns: 1fr 1fr; }
+  .set .btn { font-size: 15px; padding: 11px; margin: 8px 0 0; }
 </style>
 </head>
 <body>
   <h1 id="title"></h1>
   <div id="top"></div>
   <p class="hint">Tap a picture to open it full size, or press and hold to save it.</p>
-  <details><summary>4-Up</summary><div class="pics" id="prints"></div></details>
-  <details><summary>Singles</summary><div class="pics two" id="singles"></div></details>
+  <div id="sets"></div>
 <script>
 const D = /*DATA*/;
 const $ = s => document.querySelector(s);
@@ -61,11 +63,24 @@ if (D.video) {
   hero.innerHTML = `<div class="hero"><img src="${D.gif}" alt=""></div><button class="btn" id="saveTop">Save the GIF</button>`;
   $("#saveTop").onclick = () => shareFiles([{ src: D.gif, name: "party.gif", type: "image/gif" }], $("#saveTop"), "Save the GIF");
 }
-if (D.dropbox) hero.insertAdjacentHTML("beforeend", `<a class="btn alt" href="${D.dropbox}" target="_blank">Everything on Dropbox</a>`);
 
 const pic = p => `<a href="${p}" target="_blank"><img src="${p}" loading="lazy" alt=""></a>`;
-$("#prints").innerHTML = D.sessions.filter(s => s.print).map(s => pic(s.print)).join("");
-$("#singles").innerHTML = D.sessions.flatMap(s => s.shots).map(pic).join("");
+const sets = $("#sets");
+for (const s of D.sessions) {
+  const el = document.createElement("section"); el.className = "set";
+  el.innerHTML = (s.gif ? `<a class="gif" href="${s.gif}" target="_blank"><img src="${s.gif}" loading="lazy" alt=""></a>` : "") +
+    (s.print ? `<details><summary>4-Up</summary><div class="pics">${pic(s.print)}</div></details>` : "") +
+    (s.shots.length ? `<details><summary>Singles</summary><div class="pics two">${s.shots.map(pic).join("")}</div></details>` : "") +
+    `<button class="btn">Save this set to Photos</button>`;
+  el.querySelector("button").onclick = e => {
+    const list = [];
+    if (s.gif) list.push({ src: s.gif, name: `${s.id}_animation.gif`, type: "image/gif" });
+    if (s.print) list.push({ src: s.print, name: `${s.id}_4up.jpg`, type: "image/jpeg" });
+    s.shots.forEach((p, i) => list.push({ src: p, name: `${s.id}_photo${i + 1}.jpg`, type: "image/jpeg" }));
+    shareFiles(list, e.target, "Save this set to Photos");
+  };
+  sets.appendChild(el);
+}
 </script>
 </body>
 </html>

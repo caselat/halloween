@@ -18,7 +18,7 @@ from camera import make_camera
 from export import Exporter
 from printing import LAYOUTS, compose, crop_to_cell, list_printers, print_image, trim_bleed
 
-VERSION = "2026-10-25.43"  # bump with every update; shown in Terminal and the screen corner
+VERSION = "2026-10-25.44"  # bump with every update; shown in Terminal and the screen corner
 ROOT = Path(__file__).resolve().parent
 SESSIONS = ROOT / "sessions"
 SESSIONS.mkdir(exist_ok=True)
@@ -53,6 +53,7 @@ DEFAULTS = {
     "sounds": True,        # countdown beeps and shutter tone on the screen
     "party_title": "Party photos",   # headline of the end-of-party page
     "party_video_seconds": 30,       # the video of the night runs this long
+    "party_auto": True,              # every finished set goes onto the party page right away
     "party_repo": "",                # a git checkout of your GitHub repo on this PC: the page is pushed there
     "party_repo_folder": "party",    # folder inside that repo (served at https://USER.github.io/REPO/FOLDER/)
     "party_url": "",                 # where that folder is served, if it isn't the github.io address
@@ -301,6 +302,7 @@ def make_print(sid):
         make_gif(shots, d / "animation.gif", CFG["gif_fps"], CFG["gif_width"])
         gif = f"/sessions/{sid}/animation.gif?t={t}"
     exporter.sync(sid, meta)  # share link + uploads start now, so the QR shows on this screen
+    party.add_session(d, meta)  # and the party page gets this set
     return jsonify(ok=True, preview=f"/sessions/{sid}/print_preview.jpg?t={t}", gif=gif,
                    shots=[f"/sessions/{sid}/shot{i}_preview.jpg?t={t}" for i in range(len(shots))])
 
@@ -490,6 +492,8 @@ def qr(sid):
 
 # ---------- end of party page ----------
 import party
+party.setup(ROOT, SESSIONS, CFG, read_meta, exporter, lambda: public_url() or f"http://{lan_address()}:{CFG['port']}")
+
 
 
 @app.get("/p/<token>/")
@@ -498,20 +502,18 @@ def party_page(token, name="index.html"):
     d = ROOT / "party" / token
     if not token.isalnum() or not d.is_dir():
         abort(404)
-    return send_from_directory(d, name, max_age=0 if name == "index.html" else 3600)
+    return send_from_directory(d, name, max_age=0 if name in ("index.html", "sets.json") else 3600)
 
 
 @app.post("/api/admin/party")
 def admin_party():
-    """Build the page with every set in the gallery, then copy it to Dropbox."""
+    """Rebuild the page from every set in the gallery, make the video of the night, publish."""
     if not _admin_ok():
         return jsonify(ok=False, message="Wrong PIN"), 403
     if party.status()["stage"] in ("building", "uploading"):
         return jsonify(ok=False, message="Still working on the last one"), 409
-    title = (request.get_json(silent=True) or {}).get("title") or CFG.get("party_title") or "Party photos"
     try:
-        # no tunnel: the page still works for phones on the same Wi-Fi as the PC
-        party.build(ROOT, SESSIONS, CFG, read_meta, exporter, public_url() or f"http://{lan_address()}:{CFG['port']}", title)
+        party.build()
     except Exception as e:
         return jsonify(ok=False, message=f"{type(e).__name__}: {e}"[:300]), 500
     return jsonify(ok=True, **party.status())
