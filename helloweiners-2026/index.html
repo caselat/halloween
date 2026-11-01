@@ -75,8 +75,8 @@ const sets = $("#sets");
 for (const s of D.sessions) {
   const el = document.createElement("section"); el.className = "set";
   el.innerHTML = (s.gif ? `<a class="gif" href="${s.gif}" target="_blank"><img src="${s.gif}" loading="lazy" alt=""></a>` : "") +
-    (s.print ? `<details><summary><span><span class="show">Show the 4-Up</span><span class="hide">Hide the 4-Up</span></span></summary><div class="pics">${pic(s.print)}</div></details>` : "") +
-    (s.shots.length ? `<details><summary><span><span class="show">Show the singles</span><span class="hide">Hide the singles</span></span></summary><div class="pics two">${s.shots.map(pic).join("")}</div></details>` : "") +
+    (s.print ? `<details><summary><span><span class="show">4-Up</span><span class="hide">Hide 4-Up</span></span></summary><div class="pics">${pic(s.print)}</div></details>` : "") +
+    (s.shots.length ? `<details><summary><span><span class="show">Singles</span><span class="hide">Hide Singles</span></span></summary><div class="pics two">${s.shots.map(pic).join("")}</div></details>` : "") +
     `<button class="btn">Save</button>`;
   el.querySelector("button").onclick = e => {
     const list = [];
