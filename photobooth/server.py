@@ -18,7 +18,7 @@ from camera import make_camera
 from export import Exporter
 from printing import LAYOUTS, compose, crop_to_cell, list_printers, print_image, trim_bleed
 
-VERSION = "2026-10-25.42"  # bump with every update; shown in Terminal and the screen corner
+VERSION = "2026-10-25.43"  # bump with every update; shown in Terminal and the screen corner
 ROOT = Path(__file__).resolve().parent
 SESSIONS = ROOT / "sessions"
 SESSIONS.mkdir(exist_ok=True)
@@ -53,6 +53,9 @@ DEFAULTS = {
     "sounds": True,        # countdown beeps and shutter tone on the screen
     "party_title": "Party photos",   # headline of the end-of-party page
     "party_video_seconds": 30,       # the video of the night runs this long
+    "party_repo": "",                # a git checkout of your GitHub repo on this PC: the page is pushed there
+    "party_repo_folder": "party",    # folder inside that repo (served at https://USER.github.io/REPO/FOLDER/)
+    "party_url": "",                 # where that folder is served, if it isn't the github.io address
     "public_url": "",      # a fixed public address for guest pages, if you run your own tunnel; else the
                            # launcher's Cloudflare quick tunnel (tunnel.json) is used when it's running
     "liveview_fps": 30,    # frames per second sent to each screen

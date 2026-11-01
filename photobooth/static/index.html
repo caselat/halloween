@@ -432,7 +432,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const SCREEN_VERSION = "2026-10-25.42";  // must match server.py VERSION
+const SCREEN_VERSION = "2026-10-25.43";  // must match server.py VERSION
 let cfg = { countdown: 3, countdown_next: 2, shot_preview_seconds: 1, idle_timeout: 45,
             max_copies: 6, mirror_preview: true };
 // retakeOne: index being reshot from the final screen, or null during the normal sequence

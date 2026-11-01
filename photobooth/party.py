@@ -135,28 +135,70 @@ def build(root: Path, sessions: Path, cfg, read_meta, exporter, public_base, tit
 
     write_index()
     url = f"{public_base}/p/{token}/" if public_base else None
-    _set(url=url, stage="uploading" if exporter.dbx else "done",
-         message="Page ready." + (" Copying to Dropbox…" if exporter.dbx else " (Dropbox is off, so it only lives on the booth.)"))
+    _set(url=url, stage="done", message="Page ready on the booth.")
 
-    if not exporter.dbx:
-        return token
-
-    def upload():
-        try:
-            remote = f"{exporter.remote_root}/_party/{time.strftime('%Y-%m-%d_%H-%M')}"
-            files = [p for p in out.rglob("*") if p.is_file() and p.name != "index.html"]
-            _set(total=len(files) + 1, done=0)
-            exporter.dbx.create_folder(remote)
-            link = exporter.dbx.share_link(remote)
-            data["dropbox"] = link
-            write_index()
-            for n, p in enumerate(files, 1):
-                exporter.dbx.upload(p, f"{remote}/{p.relative_to(out).as_posix()}")
-                _set(done=n, message=f"Copying to Dropbox… {n} of {len(files) + 1}")
-            exporter.dbx.upload(out / "index.html", f"{remote}/index.html")
-            _set(done=len(files) + 1, dropbox=link, stage="done", message="Done. Everything is on Dropbox too.")
-        except Exception as e:
-            _set(stage="done", error=str(e), message=f"Page is up on the booth, but the Dropbox copy failed: {e}")
-
-    threading.Thread(target=upload, daemon=True).start()
+    repo = cfg.get("party_repo")
+    if repo:
+        _set(stage="uploading", message="Page ready. Publishing to GitHub…")
+        threading.Thread(target=_publish_github, args=(out, Path(repo).expanduser(), cfg), daemon=True).start()
+    elif exporter.dbx:
+        _set(stage="uploading", message="Page ready. Copying to Dropbox…")
+        threading.Thread(target=_publish_dropbox, args=(out, data, write_index, exporter), daemon=True).start()
     return token
+
+
+def _publish_dropbox(out, data, write_index, exporter):
+    try:
+        remote = f"{exporter.remote_root}/_party/{time.strftime('%Y-%m-%d_%H-%M')}"
+        files = [p for p in out.rglob("*") if p.is_file() and p.name != "index.html"]
+        _set(total=len(files) + 1, done=0)
+        exporter.dbx.create_folder(remote)
+        link = exporter.dbx.share_link(remote)
+        data["dropbox"] = link
+        write_index()
+        for n, p in enumerate(files, 1):
+            exporter.dbx.upload(p, f"{remote}/{p.relative_to(out).as_posix()}")
+            _set(done=n, message=f"Copying to Dropbox… {n} of {len(files) + 1}")
+        exporter.dbx.upload(out / "index.html", f"{remote}/index.html")
+        _set(done=len(files) + 1, dropbox=link, stage="done", message="Done. Everything is on Dropbox too.")
+    except Exception as e:
+        _set(stage="done", error=str(e), message=f"Page is up on the booth, but the Dropbox copy failed: {e}")
+
+
+def _git(repo, *args):
+    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=600)
+    if r.returncode:
+        raise RuntimeError((r.stderr or r.stdout).strip()[-300:] or f"git {args[0]} failed")
+    return r.stdout.strip()
+
+
+def _publish_github(out, repo, cfg):
+    """Copy the page into a folder of a GitHub repo on this PC and push it, so GitHub
+    Pages serves it at https://USER.github.io/REPO/FOLDER/ (party_url overrides that)."""
+    folder = (cfg.get("party_repo_folder") or "party").strip("/")
+    try:
+        if not (repo / ".git").exists():
+            raise RuntimeError(f"{repo} is not a git checkout")
+        try:
+            _git(repo, "pull", "--ff-only", "-q")
+        except Exception as e:
+            print(f"[party] git pull: {e}")
+        dest = repo / folder
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(out, dest)
+        _git(repo, "add", "-A", folder)
+        if _git(repo, "status", "--porcelain", folder):
+            _git(repo, "-c", "user.name=Photobooth", "-c", "user.email=photobooth@localhost",
+                 "commit", "-q", "-m", f"Party page {time.strftime('%Y-%m-%d %H:%M')}")
+            _git(repo, "push", "-q")
+        url = cfg.get("party_url")
+        if not url:
+            origin = _git(repo, "remote", "get-url", "origin")
+            path = origin.replace("git@github.com:", "").replace("https://github.com/", "").removesuffix(".git").rstrip("/")
+            user, name = path.split("/", 1)
+            url = f"https://{user}.github.io/{name}/{folder}"
+        url = url.rstrip("/") + "/"
+        _set(stage="done", url=url, message="Published to GitHub. The page updates a minute or two after each push.")
+    except Exception as e:
+        _set(stage="done", error=str(e), message=f"Page is up on the booth, but publishing to GitHub failed: {e}")
