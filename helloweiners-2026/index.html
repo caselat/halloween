@@ -19,12 +19,18 @@
   .set { border-top: 1px solid rgba(255, 246, 254, .18); padding-top: 18px; margin-top: 18px; }
   .set .gif { display: block; border-radius: 12px; overflow: hidden; background: #000; }
   .set .gif img { width: 100%; display: block; }
-  details { margin-top: 2px; }
-  summary { cursor: pointer; list-style: none; font-size: 17px; font-weight: 800; padding: 12px 2px; display: flex; justify-content: space-between; align-items: center; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 16px; border: 2px solid rgba(255, 246, 254, .5); border-radius: 999px;
+            font-size: 16px; font-weight: 800; color: #fff6fe; -webkit-tap-highlight-color: transparent; }
   summary::-webkit-details-marker { display: none; }
-  summary::after { content: "+"; font-size: 24px; line-height: 1; color: #a8ff1f; }
-  details[open] summary::after { content: "–"; }
-  .pics { display: grid; gap: 8px; padding-bottom: 10px; }
+  summary::after { content: ""; width: 10px; height: 10px; margin-right: 4px; border-right: 3px solid #a8ff1f; border-bottom: 3px solid #a8ff1f;
+                   transform: translateY(-3px) rotate(45deg); transition: transform .2s; }
+  details[open] summary { border-color: #a8ff1f; }
+  details[open] summary::after { transform: translateY(3px) rotate(-135deg); }
+  summary .show { display: inline; } summary .hide { display: none; }
+  details[open] summary .show { display: none; } details[open] summary .hide { display: inline; }
+  .pics { display: grid; gap: 8px; padding: 10px 0 4px; }
   .pics a { display: block; border-radius: 10px; overflow: hidden; background: #000; }
   .pics img { width: 100%; display: block; }
   .pics.two { grid-template-columns: 1fr 1fr; }
@@ -69,8 +75,8 @@ const sets = $("#sets");
 for (const s of D.sessions) {
   const el = document.createElement("section"); el.className = "set";
   el.innerHTML = (s.gif ? `<a class="gif" href="${s.gif}" target="_blank"><img src="${s.gif}" loading="lazy" alt=""></a>` : "") +
-    (s.print ? `<details><summary>4-Up</summary><div class="pics">${pic(s.print)}</div></details>` : "") +
-    (s.shots.length ? `<details><summary>Singles</summary><div class="pics two">${s.shots.map(pic).join("")}</div></details>` : "") +
+    (s.print ? `<details><summary><span><span class="show">Show the 4-Up</span><span class="hide">Hide the 4-Up</span></span></summary><div class="pics">${pic(s.print)}</div></details>` : "") +
+    (s.shots.length ? `<details><summary><span><span class="show">Show the singles</span><span class="hide">Hide the singles</span></span></summary><div class="pics two">${s.shots.map(pic).join("")}</div></details>` : "") +
     `<button class="btn">Save</button>`;
   el.querySelector("button").onclick = e => {
     const list = [];
