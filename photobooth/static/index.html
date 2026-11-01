@@ -51,6 +51,10 @@
   }
   #status { cursor: pointer; }
 
+  /* camera missing: say so, but leave the gallery and admin usable */
+  #noCam { position: fixed; top: 0; left: 0; right: 0; z-index: 18; display: none; padding: 14px 20px; text-align: center;
+           background: #ff4fb3; color: #12051f; font-weight: 800; font-size: 18px; }
+  #noCam.on { display: block; }
   /* end of party: a big QR for the whole room */
   #partyScreen { position: fixed; inset: 0; z-index: 19; display: none; flex-direction: column; align-items: center;
                  justify-content: center; gap: 22px; background: var(--bg); text-align: center; padding: 20px; }
@@ -388,6 +392,7 @@
   <div id="flash"></div>
   <div id="status"><i></i><span id="statusText">Connecting</span></div>
 
+  <div id="noCam"></div>
   <div id="partyScreen">
     <h1 id="partyTitle">Everyone's photos</h1>
     <img id="partyQr" alt="">
@@ -427,7 +432,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const SCREEN_VERSION = "2026-10-25.40";  // must match server.py VERSION
+const SCREEN_VERSION = "2026-10-25.41";  // must match server.py VERSION
 let cfg = { countdown: 3, countdown_next: 2, shot_preview_seconds: 1, idle_timeout: 45,
             max_copies: 6, mirror_preview: true };
 // retakeOne: index being reshot from the final screen, or null during the normal sequence
@@ -867,6 +872,8 @@ async function poll() {
       t.classList.toggle("has", !!s.latest);
     }
     const err = s.camera.error || s.export.error;
+    $("#noCam").classList.toggle("on", !s.camera.live && document.body.dataset.state === "idle");
+    $("#noCam").textContent = `No camera: ${s.camera.error || "no live view yet"}. Check the USB cable and power, then restart the booth. The gallery and admin still work.`;
     const noPrinter = s.printers && s.printers.length
       ? `no printer set (found: ${s.printers.join(", ")})` : "no printer set";
     const box = s.export.dropbox === "on"

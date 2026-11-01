@@ -102,8 +102,10 @@ server = subprocess.Popen([sys.executable, str(ROOT / "server.py")], cwd=str(ROO
 
 # Wait for live view so digiCamControl's own live view window opens before the booth
 # goes full screen on top of it.
+# Short wait only: with no camera the booth still opens (gallery, admin and the
+# end-of-party page all work without one) and says so on screen.
 print("Waiting for the camera", end="", flush=True)
-deadline = time.time() + 45
+deadline = time.time() + 10
 while time.time() < deadline and server.poll() is None:
     s = status()
     if s and s["camera"].get("live"):

@@ -18,7 +18,7 @@ from camera import make_camera
 from export import Exporter
 from printing import LAYOUTS, compose, crop_to_cell, list_printers, print_image, trim_bleed
 
-VERSION = "2026-10-25.40"  # bump with every update; shown in Terminal and the screen corner
+VERSION = "2026-10-25.41"  # bump with every update; shown in Terminal and the screen corner
 ROOT = Path(__file__).resolve().parent
 SESSIONS = ROOT / "sessions"
 SESSIONS.mkdir(exist_ok=True)
