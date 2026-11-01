@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Party photos</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #1c0933; color: #fff6fe; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+         padding: max(16px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom)); max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 6px 0 2px; }
+  .when { color: rgba(255, 246, 254, .6); font-size: 14px; margin: 0 0 16px; }
+  .hero { border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 10px; }
+  .hero img { width: 100%; display: block; }
+  .btn { display: block; width: 100%; font: inherit; font-size: 17px; font-weight: 800; padding: 14px;
+         border-radius: 999px; border: 0; background: #a8ff1f; color: #12051f; margin: 0 0 8px; cursor: pointer; text-align: center; text-decoration: none; }
+  .btn.alt { background: #8a3cff; color: #fff6fe; }
+  .btn:disabled { opacity: .6; }
+  .hint { color: rgba(255, 246, 254, .6); font-size: 13px; text-align: center; margin: 0 0 22px; }
+  .set { border-top: 1px solid rgba(255, 246, 254, .18); padding-top: 18px; margin-top: 22px; }
+  .set h2 { font-size: 18px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: baseline; }
+  .set h2 small { font-weight: 500; color: rgba(255, 246, 254, .6); font-size: 13px; }
+  .pics { display: grid; gap: 10px; }
+  .pics a { display: block; border-radius: 10px; overflow: hidden; background: #000; }
+  .pics img { width: 100%; display: block; }
+  .pics .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .set .btn { margin-top: 10px; font-size: 15px; padding: 11px; }
+  .more { margin-top: 22px; text-align: center; font-size: 14px; }
+  .more a { color: #ff4fb3; font-weight: 700; }
+</style>
+</head>
+<body>
+  <h1 id="title"></h1>
+  <p class="when" id="when"></p>
+  <div id="top"></div>
+  <p class="hint">Tap any picture to open it full size, or press and hold to save it.</p>
+  <div id="sets"></div>
+  <div class="more" id="more"></div>
+<script>
+const D = /*DATA*/;
+const $ = s => document.querySelector(s);
+$("#title").textContent = D.title; document.title = D.title;
+$("#when").textContent = `${D.when} · ${D.sessions.length} sets, ${D.count} photos`;
+
+async function shareFiles(list, btn, label) {
+  btn.disabled = true; btn.textContent = "Getting the pictures…";
+  try {
+    const files = [];
+    for (const f of list) {
+      const blob = await (await fetch(f.src)).blob();
+      files.push(new File([blob], f.name, { type: f.type }));
+    }
+    if (navigator.canShare && navigator.canShare({ files })) { await navigator.share({ files }); btn.textContent = "Saved"; }
+    else { btn.textContent = label; document.querySelector(".hint").textContent = "Press and hold each picture, then choose Save."; }
+  } catch (e) { btn.textContent = label; }
+  btn.disabled = false;
+}
+
+if (D.gif) {
+  $("#top").innerHTML = `<div class="hero"><img src="${D.gif}" alt=""></div><button class="btn" id="saveGif">Save the GIF of the night</button>`;
+  $("#saveGif").onclick = () => shareFiles([{ src: D.gif, name: "party.gif", type: "image/gif" }], $("#saveGif"), "Save the GIF of the night");
+}
+if (D.dropbox) $("#top").insertAdjacentHTML("beforeend", `<a class="btn alt" href="${D.dropbox}" target="_blank">Everything on Dropbox</a>`);
+
+const sets = $("#sets");
+for (const s of D.sessions) {
+  const el = document.createElement("section"); el.className = "set";
+  let h = `<h2><span>${s.name}</span>${s.dropbox ? `<small><a href="${s.dropbox}" target="_blank" style="color:#ff4fb3">Full size</a></small>` : ""}</h2><div class="pics">`;
+  if (s.gif) h += `<a href="${s.gif}" target="_blank"><img src="${s.gif}" loading="lazy" alt=""></a>`;
+  if (s.print) h += `<a href="${s.print}" target="_blank"><img src="${s.print}" loading="lazy" alt=""></a>`;
+  if (s.shots.length) h += `<div class="two">` + s.shots.map(p => `<a href="${p}" target="_blank"><img src="${p}" loading="lazy" alt=""></a>`).join("") + `</div>`;
+  h += `</div><button class="btn">Save this set to Photos</button>`;
+  el.innerHTML = h;
+  const btn = el.querySelector("button");
+  btn.onclick = () => {
+    const list = [];
+    if (s.gif) list.push({ src: s.gif, name: `${s.id}_animation.gif`, type: "image/gif" });
+    if (s.print) list.push({ src: s.print, name: `${s.id}_4up.jpg`, type: "image/jpeg" });
+    s.shots.forEach((p, i) => list.push({ src: p, name: `${s.id}_photo${i + 1}.jpg`, type: "image/jpeg" }));
+    shareFiles(list, btn, "Save this set to Photos");
+  };
+  sets.appendChild(el);
+}
+</script>
+</body>
+</html>

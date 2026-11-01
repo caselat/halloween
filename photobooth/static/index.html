@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Photobooth">
+<meta name="theme-color" content="#0d0c0b">
+<link rel="manifest" href="/static/manifest.json">
+<title>Photobooth</title>
+<style>
+  :root {
+    --ink: #f4eee6;
+    --dim: rgba(244, 238, 230, .62);
+    --accent: #f2c38f;
+    --bg: #0d0c0b;
+    --glass: rgba(13, 12, 11, .62);
+    --line: rgba(244, 238, 230, .18);
+    font-family: -apple-system, "SF Pro Display", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+               user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+               overscroll-behavior: none; touch-action: manipulation; }
+  img { -webkit-user-drag: none; }
+
+  /* camera + still layers */
+  /* Camera and photo layers are sized to the physical screen (100vw/100vh), not the
+     laid-out page, so they paint under the iPad's home indicator strip as well. */
+  #live, #still, #ghost { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; }
+  @supports (height: 100lvh) { #live, #still, #ghost { width: 100lvw; height: 100lvh; } }
+  /* screens with their own background fill the physical screen too */
+  .panel, #picker { height: 100vh; }
+  @supports (height: 100lvh) { .panel, #picker { height: 100lvh; } }
+  #live.mirror { transform: scaleX(-1); }
+  #live.rot180 { transform: rotate(180deg); }
+  #live.mirror.rot180 { transform: scaleX(-1) rotate(180deg); }
+  /* camera on its side: the feed is turned 90 degrees, sized to the screen's other way round */
+  #live.rot90, #live.rot270 { width: 100vh; height: 100vw; top: 50%; left: 50%; }
+  #live.rot90 { transform: translate(-50%, -50%) rotate(90deg); }
+  #live.rot270 { transform: translate(-50%, -50%) rotate(-90deg); }
+  #live.mirror.rot90 { transform: translate(-50%, -50%) scaleX(-1) rotate(90deg); }
+  #live.mirror.rot270 { transform: translate(-50%, -50%) scaleX(-1) rotate(-90deg); }
+  /* a portrait feed or photo on a landscape screen is shown whole rather than cropped to a sliver;
+     turn the tablet portrait and it fills the screen */
+  @media (orientation: landscape) {
+    body.portrait #still { object-fit: contain; }
+    #live.rot90, #live.rot270 { width: 100vh; height: 100vh; object-fit: contain; }
+  }
+  #status { cursor: pointer; }
+
+  /* end of party: a big QR for the whole room */
+  #partyScreen { position: fixed; inset: 0; z-index: 19; display: none; flex-direction: column; align-items: center;
+                 justify-content: center; gap: 22px; background: var(--bg); text-align: center; padding: 20px; }
+  #partyScreen.on { display: flex; }
+  #partyScreen h1 { margin: 0; font-size: clamp(36px, 6vw, 80px); }
+  #partyScreen img { width: min(52vh, 70vw); background: #fff; padding: 14px; border-radius: 16px; }
+  #partyScreen p { margin: 0; color: var(--dim); font-size: 18px; word-break: break-all; max-width: 90vw; }
+  #partyScreen .btn { position: absolute; right: 18px; bottom: 18px; opacity: .5; }
+  /* admin panel */
+  #admin { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center;
+           background: rgba(0, 0, 0, .85); }
+  #admin.on { display: flex; }
+  .adminBox { background: var(--bg); border: 1px solid var(--line); border-radius: 20px; padding: 28px 30px;
+              width: min(92vw, 560px); max-height: 90vh; overflow-y: auto; color: var(--ink); }
+  .adminBox h2 { margin: 0 0 18px; font-size: 24px; }
+  .pinDots { display: flex; gap: 14px; justify-content: center; margin: 8px 0 18px; }
+  .pinDots b { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--ink); }
+  .pinDots b.f { background: var(--ink); }
+  .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .pad button { font: inherit; font-size: 26px; font-weight: 700; padding: 16px 0; border-radius: 14px;
+                border: 1px solid var(--line); background: var(--glass); color: var(--ink); cursor: pointer; }
+  .pad button:active { background: var(--line); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0;
+         border-top: 1px solid var(--line); font-size: 17px; }
+  .row:first-of-type { border-top: 0; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .seg button { font: inherit; font-size: 15px; font-weight: 700; padding: 8px 16px; border: 0; background: transparent;
+                color: var(--ink); cursor: pointer; }
+  .seg button.on { background: var(--accent); color: #111; }
+  .adminBox .btn { font-size: 17px; padding: 12px 22px; }
+  .adminFoot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap; }
+  .adminInfo { font-size: 13px; color: var(--dim); line-height: 1.5; margin-top: 12px; word-break: break-all; }
+  #adminMsg { font-size: 14px; color: var(--dim); min-height: 1.4em; margin-top: 8px; }
+  #ghost, #decor { display: none; }
+  /* fade to black along the bottom edge, so the strip under the iPad's home indicator blends in */
+  #edgeFade { position: fixed; left: 0; right: 0; bottom: 0; height: 18vh; pointer-events: none;
+              background: linear-gradient(to top, #000 0%, rgba(0, 0, 0, .6) 35%, rgba(0, 0, 0, 0) 100%); }
+  .sub:empty, h1:empty { display: none; }
+
+  /* gallery: opens from a small button in the corner of the start screen */
+  /* a tile showing the most recent print; tap to browse all of them */
+  #galleryBtn { position: fixed; right: 5vw; bottom: max(5vh, env(safe-area-inset-bottom)); width: clamp(120px, 12vw, 170px);
+                aspect-ratio: 3 / 2; border-radius: 10px; border: 2px solid var(--line); background: var(--glass); color: var(--ink);
+                display: none; align-items: center; justify-content: center; cursor: pointer; padding: 0; z-index: 2; overflow: hidden; }
+  #galleryBtn img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #galleryBtn:not(.has) img { display: none; }
+  #galleryBtn.has svg { display: none; }
+  body[data-state=idle] #galleryBtn { display: flex; }
+  /* the same tile, inline on the results and done screens next to the QR code */
+  .galleryTile { position: relative; height: var(--qh); aspect-ratio: 3 / 2; box-sizing: border-box; border-radius: 10px;
+                 border: 2px solid var(--line); background: var(--glass); color: var(--ink); padding: 0; cursor: pointer;
+                 overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  .galleryTile img, .results .galleryTile img { width: 100%; height: 100%; max-width: none; max-height: none;
+      object-fit: cover; display: block; border: 0; border-radius: 0; box-shadow: none; }
+  .galleryTile:not(.has) img { display: none; }
+  .galleryTile.has svg { display: none; }
+  .galleryTile svg { width: 40%; height: 40%; }
+  .results .bottom { display: flex; gap: 3vw; align-items: flex-start; justify-content: center; }
+  /* done screen: QR card, words, gallery tile in one row; the words take what's left */
+  .doneWrap { gap: 4vw; padding-left: 4vw; padding-right: 4vw; }
+  .doneWrap > .qr { flex: none; --qr: min(30vh, 24vw); }
+  .doneWrap > div { flex: 0 1 auto; min-width: 0; }
+  .doneWrap .galleryTile { height: min(24vh, 20vw); }
+  .doneGallery { flex: none; }
+  #galleryBtn svg { width: 46%; height: 46%; display: block; }
+  #gallery { background: var(--bg); justify-content: flex-start; padding: 0; }
+  .grid { flex: 1; min-height: 0; width: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch;
+          display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: max-content;
+          gap: 2vw; align-content: start;
+          padding: max(4vh, env(safe-area-inset-top)) 4vw 18vh; touch-action: pan-y; }
+  /* each tile takes its shape from the print itself, so nothing is cropped */
+  .grid button { display: block; padding: 0; border: 0; background: #000; border-radius: 8px; overflow: hidden;
+                 cursor: pointer; align-self: start; }
+  .grid button img { width: 100%; height: auto; display: block; }
+  .grid .more { grid-column: 1 / -1; background: transparent; color: var(--dim);
+                font: inherit; font-size: 18px; font-weight: 700; padding: 20px; }
+  .grid .empty { grid-column: 1 / -1; text-align: center; color: var(--dim); font-size: 20px; padding: 10vh 0; }
+  #galleryView { background: var(--bg); justify-content: flex-start; padding-top: max(5vh, env(safe-area-inset-top)); }
+  @media (orientation: portrait) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  /* start screen shows only the layouts turned on in config.json ("layouts") */
+  body:not([data-layouts~=grid]) .choice[data-layout=grid],
+  body:not([data-layouts~=single]) .choice[data-layout=single] { display: none; }
+  #still { opacity: 0; transition: opacity .2s; background: var(--bg); object-fit: cover; }
+  body.still #still { opacity: 1; }
+  #live { transition: filter .4s; }
+  body.dim #live { filter: brightness(.45) blur(6px); }
+
+  /* panels */
+  .panel { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center;
+           justify-content: center; padding: max(4vh, env(safe-area-inset-top)) 4vw; text-align: center; }
+  .panel.on { display: flex; }
+  h1 { font-size: clamp(44px, 8vw, 120px); line-height: .95; margin: 0 0 .25em; font-weight: 800;
+       letter-spacing: -.035em; }
+  .sub { font-size: clamp(16px, 1.8vw, 24px); color: var(--dim); margin: 0 0 4vh; letter-spacing: .02em; }
+
+  /* idle */
+  #idle { justify-content: flex-end; padding-bottom: 7vh;
+          background: linear-gradient(to top, rgba(13,12,11,.85), rgba(13,12,11,0) 60%); }
+  .choices { display: flex; gap: 2.2vw; }
+  .choice { background: var(--glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+            border: 1px solid var(--line); border-radius: 26px; color: var(--ink);
+            padding: 26px 34px 22px; min-width: min(30vw, 300px); cursor: pointer;
+            display: flex; flex-direction: column; align-items: center; gap: 16px;
+            font: inherit; font-size: clamp(18px, 2vw, 26px); font-weight: 650;
+            transition: transform .12s, border-color .2s; }
+  .choice:active { transform: scale(.97); border-color: var(--accent); }
+  .choice small { display: block; font-size: .62em; font-weight: 500; color: var(--dim); margin-top: 4px; }
+  .paper { width: 120px; height: 80px; background: var(--ink); border-radius: 4px; padding: 6px;
+           display: grid; gap: 4px; }
+  .paper i { background: #8c7a66; border-radius: 1px; }
+  .paper.one { padding: 0; } .paper.one i { border-radius: 4px; }
+  .paper.four { grid-template-columns: 1fr 1fr; }
+
+  /* countdown / shot */
+  #count .num { font-size: clamp(160px, 34vh, 380px); font-weight: 800; line-height: 1;
+                text-shadow: 0 6px 40px rgba(0,0,0,.45); font-variant-numeric: tabular-nums; }
+  /* the countdown number just appears; no animation */
+  .which { position: fixed; top: max(4vh, env(safe-area-inset-top)); left: 0; right: 0; text-align: center;
+           font-size: clamp(16px, 1.8vw, 22px); letter-spacing: .08em; text-transform: uppercase;
+           text-shadow: 0 2px 12px rgba(0,0,0,.6); }
+  .dots { display: inline-flex; gap: 10px; margin-left: 14px; vertical-align: middle; }
+  .dots b { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--ink); }
+  .dots b.done { background: var(--ink); }
+  .dots b.now { background: var(--accent); border-color: var(--accent); }
+
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 4; }
+  #flash.go { animation: flash .5s ease-out; }
+  @keyframes flash { 0% { opacity: 1 } 100% { opacity: 0 } }
+
+  /* bottom action bar */
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 3vh 4vw max(4vh, env(safe-area-inset-bottom));
+         display: flex; justify-content: center; align-items: center; gap: 16px; flex-wrap: wrap;
+         background: linear-gradient(to top, rgba(13,12,11,.92), rgba(13,12,11,0)); }
+  button.btn { font: inherit; font-size: clamp(18px, 2vw, 26px); font-weight: 700; border-radius: 999px;
+               padding: 20px 40px; border: 1px solid var(--line); background: var(--glass); color: var(--ink);
+               cursor: pointer; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+               transition: transform .12s; }
+  button.btn:active { transform: scale(.96); }
+  button.btn.primary { background: var(--accent); color: #1b140c; border-color: var(--accent); }
+
+  /* final: gif + print */
+  #final, #done { background: var(--bg); justify-content: flex-start; padding-top: max(5vh, env(safe-area-inset-top)); }
+  /* GIF and print side by side at one shared height (--rh), QR code centered below (--qh). */
+  .results { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; gap: 2.6vh;
+             align-items: center; justify-content: center; padding-bottom: 17vh;
+             --rh: min(40vh, calc(88vw / 3.4)); --qh: min(20vh, 22vw); }
+  .results .pair { display: flex; gap: 3vw; align-items: flex-start; justify-content: center; }
+  .results figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 12px;
+                    min-width: 0; max-height: 100%; }
+  .results figcaption { font-size: 14px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  body.single .results { --rh: min(44vh, calc(88vw / 1.6)); }
+  .results img { height: var(--rh); width: auto; max-width: none; max-height: none; border-radius: 6px; display: block;
+                 box-shadow: 0 30px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.06); }
+
+  body.single #gifFig, body.single #gifFigGallery { display: none; }
+  .results #qrFig, .results #qrFigGallery { display: none; }
+  body.hasqr .results #qrFig, body.qr-pending .results #qrFig,
+  body.hasqr .results #qrFigGallery, body.qr-pending .results #qrFigGallery { display: flex; }
+  .results .qr { padding: 12px; border-radius: 16px; --qr: calc(var(--qh) - 24px); }
+  .results .qr img { height: var(--qr); max-width: none; max-height: none; border-radius: 0; box-shadow: none; }
+  .copies { display: flex; align-items: center; gap: 4px; background: var(--glass);
+            border: 1px solid var(--line); border-radius: 999px; padding: 6px; }
+  .copies button { width: 56px; height: 56px; border-radius: 50%; border: 0; background: transparent;
+                   color: var(--ink); font-size: 30px; cursor: pointer; }
+  .copies button:active { background: var(--line); }
+  .copies span { min-width: 112px; font-size: clamp(16px, 1.7vw, 22px); font-weight: 650; }
+
+  /* retake picker */
+  #picker { position: fixed; inset: 0; z-index: 3; display: none; flex-direction: column; align-items: center;
+            justify-content: center; gap: 3vh; background: var(--bg); padding: 4vh 4vw; }
+  #picker.on { display: flex; }
+  #picker h2 { margin: 0; font-size: clamp(26px, 3.4vw, 48px); letter-spacing: -.02em; }
+  .thumbs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2vh; width: min(84vw, 92vh); }
+  .thumbs button { position: relative; padding: 0; border: 3px solid transparent; border-radius: 12px; overflow: hidden;
+                   background: #000; cursor: pointer; aspect-ratio: 3 / 2; }
+  .thumbs button:active { border-color: var(--accent); }
+  .thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumbs span { position: absolute; left: 10px; top: 8px; font-weight: 800; font-size: 20px;
+                 text-shadow: 0 2px 8px rgba(0,0,0,.7); }
+
+  /* done */
+  .doneWrap { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6vw;
+              padding-bottom: 16vh; text-align: left; }
+  .qr { --qr: min(34vh, 40vw); background: #fff; color: #1b140c; border-radius: 22px; padding: 18px;
+        display: none; text-align: center; }
+  body.hasqr .qr, body.qr-pending .qr { display: block; }
+  .qr img { width: var(--qr); height: var(--qr); display: none; }
+  body.hasqr .qr img { display: block; }
+  .qrwait { width: var(--qr); height: var(--qr); display: none; flex-direction: column; align-items: center;
+            justify-content: center; gap: 14px; font-weight: 700; font-size: clamp(14px, 1.5vw, 20px); line-height: 1.3; }
+  body.qr-pending .qrwait { display: flex; }
+  .qrwait i { width: 36px; height: 36px; border: 4px solid #e8e0d6; border-top-color: #1b140c; border-radius: 50%;
+              animation: spin .8s linear infinite; }
+  .qr .cap { display: none; margin-top: 10px; font-size: 14px; font-weight: 700; letter-spacing: .04em; }
+  body.hasqr #done .qr .cap { display: block; }
+  body:not(.hasqr):not(.qr-pending) .doneWrap { text-align: center; }
+
+  /* busy */
+  #busy .spin { width: 64px; height: 64px; border: 5px solid var(--line); border-top-color: var(--accent);
+                border-radius: 50%; animation: spin .8s linear infinite; margin-bottom: 26px; }
+  @keyframes spin { to { transform: rotate(360deg) } }
+  #busy p { font-size: clamp(22px, 3vw, 40px); font-weight: 700; margin: 0; }
+
+  #problem p { max-width: 640px; color: var(--dim); font-size: 18px; line-height: 1.45; }
+
+  /* operator status, bottom left */
+  #status { position: fixed; left: 16px; bottom: max(14px, env(safe-area-inset-bottom)); font-size: 12px;
+            color: var(--dim); display: flex; align-items: center; gap: 8px; opacity: .7; z-index: 5; }
+  #status i { width: 8px; height: 8px; border-radius: 50%; background: #6c6; flex: none; }
+  #status.bad i { background: #e55; }
+  body:not([data-state=idle]) #status:not(.bad) { display: none; }
+
+  #toast { position: fixed; top: 0; left: 50%; transform: translate(-50%, -110%); background: #2a1512;
+           border: 1px solid #7a3a30; color: #ffd8cf; padding: 14px 22px; border-radius: 14px;
+           font-size: 16px; transition: transform .3s; z-index: 10; max-width: 80vw; }
+  #toast.on { transform: translate(-50%, 3vh); }
+
+  @media (orientation: portrait) {
+    .results { flex-direction: column; padding-bottom: 20vh; }
+    .results { --rh: min(19vh, calc(86vw / 1.8)); --qh: 15vh; }
+    .results .pair { flex-direction: column; align-items: center; gap: 2vh; }
+    body.single .results { --rh: min(32vh, calc(86vw / 1.5)); }
+    .doneWrap { flex-direction: column; text-align: center; }
+  }
+  @media (max-width: 640px) {
+    .choices { flex-direction: column; width: 100%; }
+    .choice { min-width: 0; }
+    button.btn { padding: 16px 26px; }
+  }
+</style>
+<!--THEME-->
+</head>
+<body data-state="idle">
+  <img id="live" alt="">
+  <img id="ghost" alt="" aria-hidden="true">
+  <div id="decor" aria-hidden="true"></div>
+  <img id="still" alt="">
+  <div id="edgeFade" aria-hidden="true"></div>
+
+  <section class="panel" id="idle">
+    <h1><!--START_TITLE--></h1>
+    <p class="sub"><!--START_SUBTITLE--></p>
+    <div class="choices">
+      <button class="choice cam" data-layout="grid" aria-label="Start">
+        <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M17 8.5h14l3 5h6a4 4 0 0 1 4 4v18a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-18a4 4 0 0 1 4-4h6z" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linejoin="round"/><circle cx="24" cy="25.5" r="7.5" fill="none" stroke="currentColor" stroke-width="3.5"/></svg>
+      </button>
+      <button class="choice" data-layout="single">
+        <div class="paper one"><i></i></div>
+        <div>One photo<small>Full 4×6</small></div>
+      </button>
+    </div>
+  </section>
+  <button id="galleryBtn" aria-label="Past photos"><img id="galleryTile" alt=""><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="6" y="6" width="15" height="15" rx="3" fill="currentColor"/><rect x="27" y="6" width="15" height="15" rx="3" fill="currentColor"/><rect x="6" y="27" width="15" height="15" rx="3" fill="currentColor"/><rect x="27" y="27" width="15" height="15" rx="3" fill="currentColor"/></svg></button>
+
+  <section class="panel" id="gallery">
+    <div class="grid" id="grid"></div>
+    <div class="bar"><button class="btn" id="galleryBack">Back</button></div>
+  </section>
+
+  <section class="panel" id="galleryView">
+    <div class="results">
+      <div class="pair">
+        <figure id="gifFigGallery"><img id="galleryGif" alt="Animated photos"><figcaption>GIF</figcaption></figure>
+        <figure><img class="print" id="galleryImg" alt="Print"><figcaption>To Print</figcaption></figure>
+      </div>
+      <figure id="qrFigGallery"><div class="qr"><img id="qrImgGallery" alt="QR code for these photos"><div class="qrwait"><i></i><span>Getting your<br>QR code…</span></div></div><figcaption>Download</figcaption></figure>
+    </div>
+    <div class="bar">
+      <button class="btn" id="galleryViewBack">Back</button>
+      <div class="copies"><button data-step="-1">−</button><span class="copyLabel"></span><button data-step="1">+</button></div>
+      <button class="btn primary" id="galleryPrint">Print</button>
+    </div>
+  </section>
+
+  <section class="panel" id="count">
+    <div class="which"><span id="whichText"></span><span class="dots" id="dots"></span></div>
+    <div class="num" id="num"></div>
+  </section>
+
+  <section class="panel" id="busy">
+    <div class="spin"></div>
+    <p id="busyText">One sec</p>
+  </section>
+
+  <section class="panel" id="final">
+    <div class="results">
+      <div class="pair">
+        <figure id="gifFig"><img id="gifImg" alt="Your photos, animated"><figcaption>GIF</figcaption></figure>
+        <figure><img class="print" id="printImg" alt="Your print"><figcaption>To Print</figcaption></figure>
+      </div>
+      <div class="bottom">
+        <figure id="qrFig"><div class="qr"><img id="qrImgFinal" alt="QR code for your photos"><div class="qrwait"><i></i><span>Getting your<br>QR code…</span></div></div><figcaption>Download</figcaption></figure>
+        <figure><button class="galleryTile" aria-label="Past photos"><img alt=""><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="6" y="6" width="15" height="15" rx="3" fill="currentColor"/><rect x="27" y="6" width="15" height="15" rx="3" fill="currentColor"/><rect x="6" y="27" width="15" height="15" rx="3" fill="currentColor"/><rect x="27" y="27" width="15" height="15" rx="3" fill="currentColor"/></svg></button><figcaption>Gallery</figcaption></figure>
+      </div>
+    </div>
+    <div class="bar">
+      <button class="btn" id="startOver">Start over</button>
+      <button class="btn" id="retakeBtn">Retake</button>
+      <div class="copies"><button data-step="-1">−</button><span class="copyLabel"></span><button data-step="1">+</button></div>
+      <button class="btn primary" id="printBtn">Print</button>
+    </div>
+  </section>
+
+  <div id="picker">
+    <h2>Tap the one to retake</h2>
+    <div class="thumbs" id="thumbs"></div>
+    <button class="btn" id="pickerCancel">Keep them all</button>
+  </div>
+
+  <section class="panel" id="done">
+    <div class="doneWrap">
+      <div class="qr"><img id="qrImg" alt="QR code for your photos"><div class="qrwait"><i></i><span>Getting your<br>QR code…</span></div><div class="cap">Scan for your photos</div></div>
+      <div>
+        <h1 id="doneTitle">Printing.</h1>
+        <p class="sub" id="doneText"></p>
+      </div>
+      <figure class="doneGallery"><button class="galleryTile" aria-label="Past photos"><img alt=""><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="6" y="6" width="15" height="15" rx="3" fill="currentColor"/><rect x="27" y="6" width="15" height="15" rx="3" fill="currentColor"/><rect x="6" y="27" width="15" height="15" rx="3" fill="currentColor"/><rect x="27" y="27" width="15" height="15" rx="3" fill="currentColor"/></svg></button><figcaption>Gallery</figcaption></figure>
+    </div>
+    <div class="bar">
+      <div class="copies"><button data-step="-1">−</button><span class="copyLabel"></span><button data-step="1">+</button></div>
+      <button class="btn" id="reprint">Print again</button>
+      <button class="btn primary" id="finish">Done</button>
+    </div>
+  </section>
+
+  <section class="panel" id="problem">
+    <h1>Hmm.</h1>
+    <p id="problemText"></p>
+    <div class="bar">
+      <button class="btn" id="problemReset">Start over</button>
+      <button class="btn primary" id="tryAgain">Try again</button>
+    </div>
+  </section>
+
+  <div id="flash"></div>
+  <div id="status"><i></i><span id="statusText">Connecting</span></div>
+
+  <div id="partyScreen">
+    <h1 id="partyTitle">Everyone's photos</h1>
+    <img id="partyQr" alt="">
+    <p id="partyUrl"></p>
+    <button class="btn" id="partyClose">Close</button>
+  </div>
+  <div id="admin">
+    <div class="adminBox" id="adminPin">
+      <h2>Admin</h2>
+      <div class="pinDots" id="pinDots"><b></b><b></b><b></b><b></b></div>
+      <div class="pad" id="pad">
+        <button>1</button><button>2</button><button>3</button><button>4</button><button>5</button><button>6</button>
+        <button>7</button><button>8</button><button>9</button><button data-k="clear">Clear</button><button>0</button><button data-k="close">Close</button>
+      </div>
+      <div id="adminMsg"></div>
+    </div>
+    <div class="adminBox" id="adminPanel" style="display:none">
+      <h2>Admin</h2>
+      <div class="row"><span>Camera rotation</span><div class="seg" data-key="rotate"><button data-v="0">Normal</button><button data-v="180">Upside down</button><button data-v="90">Portrait</button><button data-v="270">Portrait, flipped</button></div></div>
+      <div class="row"><span>Mirror live view</span><div class="seg" data-key="mirror_preview"><button data-v="true">On</button><button data-v="false">Off</button></div></div>
+      <div class="row"><span>Countdown, first photo</span><div class="seg" data-key="countdown"><button data-v="3">3</button><button data-v="5">5</button><button data-v="7">7</button></div></div>
+      <div class="row"><span>Countdown, next photos</span><div class="seg" data-key="countdown_next"><button data-v="2">2</button><button data-v="3">3</button><button data-v="5">5</button></div></div>
+      <div class="row"><span>Countdown sounds</span><div class="seg" data-key="sounds"><button data-v="true">On</button><button data-v="false">Off</button></div></div>
+      <div class="row"><span>Live view frame rate</span><div class="seg" data-key="liveview_fps"><button data-v="10">10</button><button data-v="15">15</button><button data-v="30">30</button></div></div>
+      <div class="row"><span>Printer check</span><button class="btn" id="adminTestPrint">Print last session</button></div>
+      <div class="row"><span>Start of event</span><button class="btn" id="adminClear">Clear all photos</button></div>
+      <div class="row"><span>End of party</span><span><button class="btn" id="adminParty">Build party page</button> <button class="btn" id="adminPartyShow" style="display:none">Show QR on screen</button></span></div>
+      <div class="adminInfo" id="adminInfo"></div>
+      <div id="adminMsg2" class="adminInfo"></div>
+      <div class="adminFoot"><button class="btn primary" id="adminClose">Done</button></div>
+    </div>
+  </div>
+  <div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const SCREEN_VERSION = "2026-10-25.40";  // must match server.py VERSION
+let cfg = { countdown: 3, countdown_next: 2, shot_preview_seconds: 1, idle_timeout: 45,
+            max_copies: 6, mirror_preview: true };
+// retakeOne: index being reshot from the final screen, or null during the normal sequence
+const S = { sid: null, layout: null, shots: 0, idx: 0, copies: 1, busy: false, run: 0, retakeOne: null, thumbs: [] };
+let idleTimer = null;
+
+// ---------- view helpers ----------
+function show(name) {
+  document.body.dataset.state = name;
+  $$(".panel").forEach(p => p.classList.toggle("on", p.id === name));
+  document.body.classList.toggle("dim", name === "busy" && !document.body.classList.contains("still"));
+  if (name !== "final") $("#picker").classList.remove("on");
+  ghost(name === "idle");
+  armIdle();
+}
+// Some themes show a second, ghostly copy of the live view on the start screen.
+// It's a second stream, so it only runs while the start screen is up.
+function ghost(on) {
+  const g = $("#ghost");
+  if (on && getComputedStyle(g).display !== "none") {
+    if (!g.dataset.on) { g.src = "/liveview?ghost=" + Date.now(); g.dataset.on = "1"; }
+  } else if (g.dataset.on) { g.removeAttribute("src"); delete g.dataset.on; }
+}
+function still(src) {
+  if (src) { $("#still").src = src; document.body.classList.add("still"); }
+  else document.body.classList.remove("still");
+}
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 5000);
+}
+function busy(text) { $("#busyText").textContent = text; show("busy"); }
+function dots(el, idx) {
+  el.innerHTML = S.shots > 1 ? Array.from({ length: S.shots }, (_, i) =>
+    `<b class="${i < idx ? "done" : i === idx ? "now" : ""}"></b>`).join("") : "";
+}
+function setCopies(n) {
+  S.copies = Math.max(1, Math.min(cfg.max_copies, n));
+  $$(".copyLabel").forEach(e => e.textContent = S.copies === 1 ? "1 copy" : `${S.copies} copies`);
+}
+function armIdle() {
+  clearTimeout(idleTimer);
+  if (["final", "done", "problem", "gallery", "galleryView"].includes(document.body.dataset.state))
+    idleTimer = setTimeout(reset, cfg.idle_timeout * 1000);
+}
+function loadImg(img, src) {
+  return new Promise(res => { img.onload = img.onerror = res; img.src = src; });
+}
+async function api(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify(body || {}) });
+  const j = await r.json().catch(() => ({ ok: false, message: `Server error ${r.status}` }));
+  if (!r.ok || j.ok === false) throw new Error(j.message || `Request failed (${r.status})`);
+  return j;
+}
+
+// ---------- sounds: made on the spot, no audio files ----------
+// 0 = countdown tick, 1 = last tick (higher), 2 = shutter. iPads only allow sound after a tap,
+// so the audio engine is created on the first button press.
+let audio = null;
+function unlockAudio() {
+  if (audio) { if (audio.state === "suspended") audio.resume(); return; }
+  try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch { audio = null; }
+}
+function tone(freq, start, length, gain, type) {
+  const o = audio.createOscillator(), g = audio.createGain();
+  o.type = type || "sine"; o.frequency.value = freq;
+  g.gain.setValueAtTime(0, start); g.gain.linearRampToValueAtTime(gain, start + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, start + length);
+  o.connect(g).connect(audio.destination); o.start(start); o.stop(start + length + 0.05);
+}
+function click(start, length, gain) {   // a burst of noise: the shutter
+  const n = Math.floor(audio.sampleRate * length), buf = audio.createBuffer(1, n, audio.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = audio.createBufferSource(), g = audio.createGain(), f = audio.createBiquadFilter();
+  src.buffer = buf; f.type = "bandpass"; f.frequency.value = 3000; f.Q.value = 0.7; g.gain.value = gain;
+  src.connect(f).connect(g).connect(audio.destination); src.start(start);
+}
+// 0 = countdown tick, 1 = last tick (higher), 3 = all done chime (no sound on the capture itself)
+function beep(kind) {
+  if (!cfg.sounds || !audio) return;
+  if (audio.state === "suspended") audio.resume();
+  const t = audio.currentTime;
+  if (kind === 0) tone(880, t, 0.12, 0.25);
+  else if (kind === 1) tone(1320, t, 0.18, 0.3);
+  else { tone(523, t, 0.16, 0.22); tone(659, t + 0.13, 0.16, 0.22); tone(784, t + 0.26, 0.3, 0.25); }
+}
+document.addEventListener("pointerdown", unlockAudio, { capture: true });
+
+// ---------- flow ----------
+function reset() {
+  S.run++;
+  Object.assign(S, { sid: null, layout: null, shots: 0, idx: 0, busy: false, retakeOne: null, thumbs: [] });
+  document.body.classList.remove("single", "hasqr", "qr-pending");
+  setCopies(1); still(null); show("idle");
+}
+
+async function start(layout) {
+  if (S.busy) return;
+  S.busy = true;
+  try {
+    const s = await api("/api/session", { layout });
+    Object.assign(S, { sid: s.id, layout, shots: s.shots, idx: 0, retakeOne: null });
+    document.body.classList.toggle("single", s.shots === 1);
+    shoot();
+  } catch (e) { S.busy = false; toast(e.message); }
+}
+
+// Shoots S.idx. In the normal sequence the photos run back to back; a retake
+// from the final screen shoots one photo and goes straight back to the results.
+async function shoot() {
+  const run = ++S.run;
+  S.busy = true; still(null); show("count");
+  const first = S.idx === 0 || S.retakeOne !== null;
+  $("#whichText").textContent = S.shots > 1 ? `Photo ${S.idx + 1} of ${S.shots}` : "Get ready";
+  dots($("#dots"), S.idx);
+  const num = $("#num");
+  for (let n = first ? cfg.countdown : cfg.countdown_next; n > 0; n--) {
+    num.textContent = n; num.dataset.n = n; beep(n === 1 ? 1 : 0);
+    await sleep(1000);
+    if (run !== S.run) return;
+  }
+  num.textContent = ""; delete num.dataset.n;
+  let r;
+  try {
+    r = await api(`/api/session/${S.sid}/shot/${S.idx}`);
+  } catch (e) {
+    if (run === S.run) problem(`The camera didn't take the photo. ${e.message}`, shoot);
+    return;
+  }
+  if (run !== S.run) return;
+  const f = $("#flash"); f.classList.remove("go"); void f.offsetWidth; f.classList.add("go");
+  dots($("#dots"), S.idx + 1);
+  still(r.preview);
+  await sleep(cfg.shot_preview_seconds * 1000);
+  if (run !== S.run) return;
+  if (S.retakeOne === null && S.idx + 1 < S.shots) { S.idx++; shoot(); }
+  else { S.retakeOne = null; finish(); }
+}
+
+async function finish() {
+  S.busy = true; busy(cfg.making_text || (S.shots > 1 ? "Making your GIF and print" : "Making your print"));
+  try {
+    const r = await api(`/api/session/${S.sid}/compose`);
+    S.thumbs = r.shots;
+    const loads = [loadImg($("#printImg"), r.preview)];
+    if (r.gif) loads.push(loadImg($("#gifImg"), r.gif));
+    await Promise.all(loads);
+    document.body.classList.remove("hasqr", "qr-pending");  // a retake gets its own folder and QR code
+    still(null); show("final"); beep(3);
+    watchShare(); poll();
+  } catch (e) { problem(`Couldn't build the print. ${e.message}`, finish); }
+  S.busy = false;
+}
+
+function retake() {
+  if (S.busy) return;
+  if (S.shots === 1) return retakeShot(0);
+  $("#thumbs").innerHTML = S.thumbs.map((src, i) =>
+    `<button data-i="${i}"><img src="${src}" alt=""><span>${i + 1}</span></button>`).join("");
+  $$("#thumbs button").forEach(b => b.onclick = () => retakeShot(+b.dataset.i));
+  $("#picker").classList.add("on"); armIdle();
+}
+function retakeShot(i) {
+  $("#picker").classList.remove("on");
+  S.idx = i; S.retakeOne = i; shoot();
+}
+
+async function doPrint() {
+  if (S.busy) return;
+  S.busy = true; const back = document.body.dataset.state;
+  busy(S.copies > 1 ? `Sending ${S.copies} copies` : "Sending to printer");
+  try {
+    const r = await api(`/api/session/${S.sid}/print`, { copies: S.copies });
+    $("#doneTitle").textContent = cfg.done_title || (r.skipped ? "Saved." : "Printing.");
+    $("#doneText").textContent = [
+      r.skipped ? r.message : (r.copies > 1 ? `${r.copies} copies on the way.` : "Grab it from the tray in a few seconds."),
+      ].filter(Boolean).join(" ");
+    setCopies(1); show("done");
+  } catch (e) { toast(`Print failed: ${e.message}`); show(back); }
+  S.busy = false;
+}
+
+// Show "Getting your QR code…" and keep asking the booth computer until the Dropbox
+// share link exists (it retries on its own end), then show the code. Stops when the
+// session ends or a retake starts a new one.
+function setQr(mode) {
+  document.body.classList.toggle("qr-pending", mode === "wait");
+  document.body.classList.toggle("hasqr", mode === "ready");
+}
+function imgOk(img, src) {
+  return new Promise(res => { img.onload = () => res(true); img.onerror = () => res(false); img.src = src; });
+}
+async function watchShare() {
+  const sid = S.sid, run = (S.shareRun = (S.shareRun || 0) + 1);
+  const live = () => sid === S.sid && run === S.shareRun;
+  setQr("wait");
+  while (live()) {
+    let r = null;
+    try { r = await (await fetch(`/api/session/${sid}/share`)).json(); } catch {}
+    if (!live()) return;
+    if (r && r.state === "off") { setQr(null); return; }      // Dropbox not connected
+    if (r && r.error) console.warn("QR link:", r.error);
+    if (r && r.state === "ready") {
+      const ok = (await Promise.all([imgOk($("#qrImgFinal"), r.qr), imgOk($("#qrImg"), r.qr), imgOk($("#qrImgGallery"), r.qr)])).every(Boolean);
+      if (!live()) return;
+      if (ok) { setQr("ready"); return; }
+      console.warn("QR image failed to load:", r.qr);
+    }
+    await sleep(1500);
+  }
+}
+
+// Start over: just go back to the start. Nothing is removed, the set stays in the gallery.
+function discardAndReset() { reset(); }
+
+// ---------- gallery: past sessions, tap one to print it again ----------
+const G = { offset: 0, from: "idle", saved: null, more: false, loading: false };
+async function openGallery() {
+  if (S.busy) return;
+  const st = document.body.dataset.state;
+  if (st === "final" || st === "done") {   // remember the guest's own session so Back returns to it
+    G.from = st;
+    G.saved = { S: Object.assign({}, S), cls: [...document.body.classList] };
+  } else if (st !== "gallery" && st !== "galleryView") {
+    G.from = "idle"; G.saved = null;
+  }
+  G.offset = 0; $("#grid").innerHTML = ""; show("gallery");
+  await loadGalleryPage();
+}
+function closeGallery() {
+  if (G.saved && (G.from === "final" || G.from === "done")) {
+    Object.assign(S, G.saved.S);
+    document.body.className = G.saved.cls.join(" ");
+    setCopies(S.copies); show(G.from);
+  } else reset();
+}
+async function loadGalleryPage() {
+  if (G.loading) return;
+  G.loading = true;
+  $("#grid .more")?.remove();
+  let r;
+  try { r = await (await fetch(`/api/gallery?offset=${G.offset}&limit=24`)).json(); }
+  catch { toast("Couldn't load past photos"); G.loading = false; return; }
+  G.more = r.more;
+  if (!r.items.length && G.offset === 0) {
+    $("#grid").innerHTML = `<div class="empty">No photos yet</div>`; G.loading = false; return;
+  }
+  for (const it of r.items) {
+    const b = document.createElement("button");
+    b.innerHTML = `<img src="${it.thumb}" alt="" loading="lazy">`;
+    b.onclick = () => openGalleryItem(it);
+    $("#grid").appendChild(b);
+  }
+  G.offset += r.items.length;
+  G.loading = false;
+  if (r.more) {
+    const m = document.createElement("button"); m.className = "more"; m.textContent = "More";
+    m.onclick = loadGalleryPage; $("#grid").appendChild(m);
+  }
+}
+// load the next page on its own when scrolled near the bottom
+$("#grid").addEventListener("scroll", () => {
+  const g = $("#grid");
+  if (G.more && !G.loading && g.scrollTop + g.clientHeight > g.scrollHeight - 300) loadGalleryPage();
+  armIdle();
+});
+async function openGalleryItem(it) {
+  // Make this the current session so Print, Print again and the QR code all work on it.
+  Object.assign(S, { sid: it.id, shots: it.shots, layout: it.shots > 1 ? "grid" : "single", retakeOne: null });
+  document.body.classList.toggle("single", it.shots === 1);
+  document.body.classList.remove("hasqr", "qr-pending");
+  const loads = [loadImg($("#galleryImg"), it.preview)];
+  if (it.gif) loads.push(loadImg($("#galleryGif"), it.gif));
+  await Promise.all(loads);
+  setCopies(1); show("galleryView"); watchShare();
+}
+$$("#galleryBtn, .galleryTile").forEach(b => b.onclick = openGallery);
+$("#galleryBack").onclick = closeGallery;
+$("#galleryViewBack").onclick = openGallery;
+$("#galleryPrint").onclick = doPrint;
+
+function problem(msg, retry) {
+  S.busy = false; still(null);
+  $("#problemText").textContent = msg;
+  $("#tryAgain").onclick = retry;
+  show("problem");
+}
+
+// ---------- wiring ----------
+$$(".choice").forEach(b => b.onclick = () => start(b.dataset.layout));
+$("#retakeBtn").onclick = retake;
+$("#pickerCancel").onclick = () => { $("#picker").classList.remove("on"); armIdle(); };
+$("#printBtn").onclick = doPrint;
+$("#reprint").onclick = doPrint;
+$("#startOver").onclick = discardAndReset;
+$("#finish").onclick = reset;
+$("#problemReset").onclick = discardAndReset;
+$$(".copies button").forEach(b => b.onclick = () => { setCopies(S.copies + +b.dataset.step); armIdle(); });
+document.addEventListener("pointerdown", armIdle);
+document.addEventListener("contextmenu", e => e.preventDefault());
+
+document.addEventListener("keydown", e => {
+  const st = document.body.dataset.state;
+  if (e.key === "Escape") return reset();
+  const allowed = (document.body.dataset.layouts || "grid single").split(" ");
+  if (st === "idle" && e.key === "4" && allowed.includes("grid")) start("grid");
+  if (st === "idle" && e.key === "1" && allowed.includes("single")) start("single");
+  if (st === "final" && e.key.toLowerCase() === "r") retake();
+  if (e.key === " " || e.key === "Enter") {
+    e.preventDefault();
+    if (st === "idle") start(allowed[0]);
+    else if (st === "final") doPrint();
+    else if (st === "done") reset();
+  }
+  if (e.key.toLowerCase() === "f") document.documentElement.requestFullscreen?.();
+});
+
+// live view, reconnecting if the server restarts or the tablet wakes from sleep
+// live view: a continuous stream from the booth, reconnecting if it drops
+function connectLive() { $("#live").src = "/liveview?t=" + Date.now(); }
+$("#live").onerror = () => setTimeout(connectLive, 2000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) connectLive(); });
+
+// ---------- admin panel: 5 taps on the corner status text, then the PIN ----------
+const A = { taps: [], pin: "" };
+$("#status").addEventListener("click", () => {
+  const now = Date.now(); A.taps = A.taps.filter(t => now - t < 3000); A.taps.push(now);
+  if (A.taps.length >= 5) { A.taps = []; openAdmin(); }
+});
+function openAdmin() {
+  A.pin = ""; drawPin(); $("#adminMsg").textContent = "";
+  $("#adminPin").style.display = ""; $("#adminPanel").style.display = "none"; $("#admin").classList.add("on");
+}
+function closeAdmin() { $("#admin").classList.remove("on"); A.pin = ""; }
+function drawPin() { $$("#pinDots b").forEach((d, i) => d.classList.toggle("f", i < A.pin.length)); }
+$$("#pad button").forEach(b => b.onclick = async () => {
+  const k = b.dataset.k;
+  if (k === "close") return closeAdmin();
+  if (k === "clear") { A.pin = ""; drawPin(); return; }
+  if (A.pin.length >= 4) return;
+  A.pin += b.textContent; drawPin();
+  if (A.pin.length === 4) {
+    try {
+      const r = await api("/api/admin/login", { pin: A.pin });
+      showAdminPanel(r);
+    } catch (e) { $("#adminMsg").textContent = e.message; A.pin = ""; drawPin(); }
+  }
+});
+function showAdminPanel(r) {
+  $("#adminPin").style.display = "none"; $("#adminPanel").style.display = "";
+  for (const seg of $$("#adminPanel .seg")) {
+    const v = String(r.settings[seg.dataset.key]);
+    seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+  }
+  $("#adminInfo").innerHTML = `Portrait: if people come out upside down, pick the other Portrait option. ` +
+    `Portrait prints are a portrait 4x6 with portrait cells.<br>Version ${SCREEN_VERSION}<br>Addresses: ${r.addresses.join(" · ")}<br>` +
+    (r.public_url ? `Guest pages: ${r.public_url} (QR codes open these)` : `Guest pages: off, QR codes open Dropbox`);
+  $("#adminMsg2").textContent = "";
+}
+$$("#adminPanel .seg button").forEach(b => b.onclick = async () => {
+  const seg = b.closest(".seg"), key = seg.dataset.key;
+  const raw = b.dataset.v, val = raw === "true" ? true : raw === "false" ? false : +raw;
+  try {
+    const r = await api("/api/admin/settings", { pin: A.pin, [key]: val });
+    seg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+    Object.assign(cfg, r.settings); applyCamera();
+    $("#adminMsg2").textContent = "Saved.";
+  } catch (e) { $("#adminMsg2").textContent = e.message; }
+});
+$("#adminTestPrint").onclick = async () => {
+  $("#adminMsg2").textContent = "Sending…";
+  try { const r = await api("/api/admin/test-print", { pin: A.pin }); $("#adminMsg2").textContent = r.skipped ? r.message : "Sent to the printer."; }
+  catch (e) { $("#adminMsg2").textContent = e.message; }
+};
+// Clear all: first tap arms it, second tap within 5 seconds does it. Sessions go to archive/, not the bin.
+let clearArmed = null;
+$("#adminClear").onclick = async () => {
+  const b = $("#adminClear");
+  if (!clearArmed) {
+    clearArmed = setTimeout(() => { clearArmed = null; b.textContent = "Clear all photos"; }, 5000);
+    b.textContent = "Tap again to clear"; $("#adminMsg2").textContent = "Moves every session to the archive folder on the PC. Dropbox is not touched.";
+    return;
+  }
+  clearTimeout(clearArmed); clearArmed = null; b.textContent = "Clear all photos";
+  try {
+    const r = await api("/api/admin/clear", { pin: A.pin });
+    $("#adminMsg2").textContent = r.message; G.offset = 0; poll();
+  } catch (e) { $("#adminMsg2").textContent = e.message; }
+};
+$("#adminClose").onclick = closeAdmin;
+
+// ---------- end of party page ----------
+let partyTimer = null;
+function showPartyState(r) {
+  $("#adminMsg2").textContent = `${r.message}${r.sessions ? ` (${r.sessions} sets)` : ""}`;
+  $("#adminPartyShow").style.display = r.url ? "" : "none";
+  if (r.url || r.dropbox) $("#adminInfo").innerHTML = (r.url ? `Party page: ${r.url}<br>` : "") + (r.dropbox ? `Dropbox copy: ${r.dropbox}<br>` : "") +
+    `The page folder is in the booth's party folder on the PC, ready to put on any website.`;
+  if (r.stage === "building" || r.stage === "uploading") {
+    clearTimeout(partyTimer);
+    partyTimer = setTimeout(async () => { try { showPartyState(await (await fetch("/api/admin/party")).json()); } catch (e) {} }, 2000);
+  }
+}
+$("#adminParty").onclick = async () => {
+  $("#adminMsg2").textContent = "Building…";
+  try { showPartyState(await api("/api/admin/party", { pin: A.pin })); }
+  catch (e) { $("#adminMsg2").textContent = e.message; }
+};
+$("#adminPartyShow").onclick = async () => {
+  const r = await (await fetch("/api/admin/party")).json();
+  if (!r.url) return;
+  $("#partyQr").src = `/api/party/qr.svg?t=${Date.now()}`;
+  $("#partyUrl").textContent = r.url;
+  closeAdmin(); $("#partyScreen").classList.add("on");
+};
+$("#partyClose").onclick = () => $("#partyScreen").classList.remove("on");
+function applyCamera() {
+  const r = +cfg.rotate || 0;
+  for (const el of $$("#live, #ghost")) {
+    el.classList.toggle("mirror", !!cfg.mirror_preview);
+    el.classList.toggle("rot180", r === 180);
+    el.classList.toggle("rot90", r === 90);
+    el.classList.toggle("rot270", r === 270);
+  }
+  document.body.classList.toggle("portrait", r === 90 || r === 270);
+}
+
+async function poll() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    Object.assign(cfg, s.ui);
+    applyCamera();
+    for (const t of $$("#galleryBtn, .galleryTile")) {
+      const img = t.querySelector("img");
+      if (s.latest && img.dataset.src !== s.latest) { img.dataset.src = s.latest; img.src = s.latest + "?t=" + Date.now(); }
+      t.classList.toggle("has", !!s.latest);
+    }
+    const err = s.camera.error || s.export.error;
+    const noPrinter = s.printers && s.printers.length
+      ? `no printer set (found: ${s.printers.join(", ")})` : "no printer set";
+    const box = s.export.dropbox === "on"
+      ? `Dropbox on${s.export.uploading ? `, ${s.export.uploading} uploading` : ""}` : "Dropbox off";
+    const stale = s.version !== SCREEN_VERSION
+      ? `Screen version ${SCREEN_VERSION} doesn't match booth ${s.version || "(old)"}: check static/index.html` : "";
+    $("#status").classList.toggle("bad", !!(err || stale));
+    $("#statusText").textContent = stale || err ||
+      `v${s.version} · ${s.camera.backend} camera · ${s.printer ? "printer " + s.printer : noPrinter} · ${box}`;
+  } catch {
+    $("#status").classList.add("bad"); $("#statusText").textContent = "Booth computer not reachable";
+  }
+}
+
+setCopies(1); show("idle"); connectLive(); poll(); setInterval(poll, 5000);
+</script>
+</body>
+</html>

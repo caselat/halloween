@@ -1,0 +1,136 @@
+/* Halloween: loud, cheesy, sticker-bright.
+   Grape night background, slime / tangerine / bubblegum stickers, Gorvex for the
+   big lines. The live view fills the screen. Screen only: nothing here touches the prints. */
+
+@font-face { font-family: "Gorvex"; font-style: normal; font-weight: 400; font-display: block;
+             src: url("/static/fonts/Gorvex.ttf") format("truetype"); }
+
+:root {
+  --grape: #1c0933;       /* background */
+  --grape-ink: #12051f;   /* outlines and hard shadows */
+  --violet: #8a3cff;
+  --slime: #a8ff1f;
+  --tangerine: #ff7a1a;
+  --bubblegum: #ff4fb3;
+  --ghost: #fff6fe;
+
+  --ink: var(--ghost);
+  --dim: rgba(255, 246, 254, .78);
+  --accent: var(--slime);
+  --bg: var(--grape);
+  --line: rgba(255, 246, 254, .35);
+  --glass: rgba(28, 9, 51, .72);
+  --ui: "Avenir Next", "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family: var(--ui);
+}
+
+html, body { background: #000; }  /* black behind everything: the iPad's bottom strip shows this */
+
+/* The whole camera picture, letterboxed: what you see is what gets captured. */
+/* live view fills the screen; the edges get cropped on screen but are still captured */
+#live { object-fit: cover; }
+
+/* ---------- type ---------- */
+h1, #count .num, #doneTitle {
+  font-family: "Gorvex", var(--ui); font-weight: 400; letter-spacing: .01em; line-height: 1.05;
+  color: var(--slime);
+  text-shadow: 0 6px 24px rgba(18, 5, 31, .55);
+}
+.sub, button.btn, .choice, .copies span, .which, figcaption, #picker h2, #busy p, .qr .cap, .qrwait, #status {
+  font-family: var(--ui);
+}
+.sub { font-weight: 700; color: var(--ghost); text-shadow: 0 2px 10px rgba(18, 5, 31, .8); }
+
+/* ---------- buttons: chunky stickers ---------- */
+button.btn {
+  font-weight: 800; border: 3px solid var(--grape-ink); border-radius: 999px;
+  background: var(--violet); color: var(--ghost);
+  box-shadow: 4px 5px 0 var(--grape-ink); backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+button.btn:active { transform: translate(3px, 4px); box-shadow: 1px 1px 0 var(--grape-ink); }
+button.btn.primary { background: var(--slime); border-color: var(--grape-ink); color: var(--grape-ink); }
+.copies { background: var(--ghost); border: 3px solid var(--grape-ink); box-shadow: 4px 5px 0 var(--grape-ink); }
+.copies span, .copies button { color: var(--grape-ink); font-weight: 800; }
+
+/* ---------- start screen ---------- */
+#idle { justify-content: flex-end; padding-bottom: 5vh; background: none; }  /* no fade over the camera */
+.bar { background: none; }  /* buttons sit straight on the screen, no dark fade */
+#idle h1 { font-size: clamp(40px, 7vw, 104px); margin: 0 0 .15em; max-width: 94vw; text-wrap: balance; }
+#idle .sub { font-size: clamp(17px, 2vw, 26px); margin: 0 0 3vh; max-width: 40ch; }
+#idle .choices { gap: 2.4vw; }
+#idle .choice {
+  flex-direction: row; gap: 18px; min-width: 0; padding: 16px 30px 16px 20px; text-align: left;
+  border: 3px solid var(--grape-ink); border-radius: 22px; color: var(--grape-ink);
+  font-size: clamp(20px, 2.2vw, 30px); font-weight: 900; letter-spacing: -.01em;
+  box-shadow: 5px 6px 0 var(--grape-ink); backdrop-filter: none; -webkit-backdrop-filter: none;
+  transform: rotate(-1.5deg);
+}
+#idle .choice[data-layout=grid]   { background: var(--slime); }
+/* The start button: just a big round camera. */
+#idle .choice.cam { width: clamp(110px, 13vw, 170px); height: clamp(110px, 13vw, 170px); padding: 0;
+                    border-radius: 50%; display: grid; place-items: center; gap: 0; line-height: 0;
+                    transform: none; }
+#idle .choice.cam svg { width: 56%; height: 56%; display: block; }
+#idle .choice.cam:active { transform: translate(3px, 4px); }
+#idle h1 { margin-bottom: 3vh; }
+#idle .choice[data-layout=single] { background: var(--bubblegum); transform: rotate(1.5deg); }
+#idle .choice:active { transform: translate(3px, 4px) rotate(0); box-shadow: 1px 1px 0 var(--grape-ink); }
+#idle .choice small { color: var(--grape-ink); font-weight: 700; opacity: .8; font-size: .6em; }
+#idle .paper { width: 64px; height: 43px; flex: none; border-radius: 4px; padding: 4px; gap: 3px;
+               background: var(--grape-ink); border: 2px solid var(--grape-ink); }
+#idle .paper i { background: var(--ghost); border-radius: 2px; }
+#idle .paper.one { padding: 0; } #idle .paper.one i { border-radius: 2px; }
+
+/* ---------- countdown ---------- */
+#count .num { font-size: clamp(170px, 34vh, 380px); line-height: 1; text-shadow: 0 8px 30px rgba(18, 5, 31, .6); }
+.which { font-weight: 900; text-transform: none; letter-spacing: 0; text-shadow: none; }
+.which span:first-child { background: var(--ghost); color: var(--grape-ink); padding: 8px 18px; border-radius: 999px;
+                          border: 3px solid var(--grape-ink); box-shadow: 3px 4px 0 var(--grape-ink); }
+.dots b { border-color: var(--ghost); }
+.dots b.done { background: var(--ghost); }
+.dots b.now { background: var(--slime); border-color: var(--slime); }
+
+/* ---------- results, done, busy ---------- */
+#final, #done { background: linear-gradient(to top, #000 0%, rgba(0, 0, 0, 0) 18vh),
+                            radial-gradient(120% 80% at 50% 0%, #3a1170 0%, var(--grape) 60%), var(--grape); }
+.results figcaption { font-weight: 800; text-transform: none; letter-spacing: 0; color: var(--ghost); font-size: 16px; }
+/* Same hard drop shadow on the GIF, the 4-up and the single print. It's set in
+   black so it still reads against the 4-up's black border. */
+.results img { border-radius: 10px; border: 0; box-shadow: 7px 9px 0 rgba(0, 0, 0, .7); }
+.results .galleryTile img { border-radius: 0; box-shadow: none; }
+.results .qr { border: 3px solid var(--grape-ink); box-shadow: 6px 8px 0 var(--grape-ink);
+               --qr: calc(var(--qh) - 30px); }  /* 12px padding + 3px border, each side */
+.results .qr img { border: 0; box-shadow: none; }
+.qr { border: 3px solid var(--grape-ink); box-shadow: 6px 8px 0 var(--grape-ink); }
+.qr .cap { font-weight: 800; }
+#doneTitle { font-size: clamp(56px, 8vw, 120px); }
+#busy p { font-weight: 900; }
+#busy .spin { border-color: rgba(255, 246, 254, .2); border-top-color: var(--slime); }
+#flash { background: var(--ghost); }
+
+#picker { background: linear-gradient(to top, #000 0%, rgba(0, 0, 0, 0) 18vh), var(--grape); }
+#picker h2 { font-weight: 900; }
+.thumbs button { border: 3px solid var(--grape-ink); box-shadow: 5px 6px 0 var(--grape-ink); border-radius: 14px; }
+.thumbs button:active { border-color: var(--slime); }
+
+/* ---------- smaller and portrait screens ---------- */
+@media (orientation: portrait) {
+  #idle .choices { flex-direction: column; align-items: center; width: min(82vw, 440px); }
+  #idle .choice, #idle .choice[data-layout=single] { transform: none; }
+}
+
+
+/* ---------- gallery ---------- */
+#galleryBtn, .galleryTile { border: 3px solid var(--ghost); border-radius: 10px; background: var(--grape-ink);
+              box-shadow: 7px 9px 0 rgba(0, 0, 0, .7); }
+#galleryBtn:active, .galleryTile:active { transform: translate(3px, 4px); box-shadow: 2px 2px 0 rgba(0, 0, 0, .7); }
+/* keep the caption clear of the shadow */
+.galleryTile, .results .qr { margin-bottom: 10px; }
+.doneGallery { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.doneGallery figcaption { font-weight: 800; color: var(--ghost); font-size: 16px; }
+#gallery, #galleryView { background: linear-gradient(to top, #000 0%, rgba(0, 0, 0, 0) 18vh),
+                                     radial-gradient(120% 80% at 50% 0%, #3a1170 0%, var(--grape) 60%), var(--grape); }
+.grid button { border: 3px solid var(--grape-ink); box-shadow: 5px 6px 0 var(--grape-ink); border-radius: 12px; }
+.grid button:active { transform: translate(3px, 4px); box-shadow: 1px 1px 0 var(--grape-ink); }
+.grid .more { border: 0; box-shadow: none; color: var(--ghost); }
+.grid .more:active { transform: none; }

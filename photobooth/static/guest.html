@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Your photos</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #1c0933; color: #fff6fe; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+         padding: max(16px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom)); }
+  h1 { font-size: 22px; margin: 6px 0 2px; }
+  .when { color: rgba(255, 246, 254, .6); font-size: 14px; margin: 0 0 16px; }
+  .save { display: block; width: 100%; font: inherit; font-size: 18px; font-weight: 800; padding: 16px;
+          border-radius: 999px; border: 0; background: #a8ff1f; color: #12051f; margin: 0 0 8px; cursor: pointer; }
+  .save:disabled { opacity: .6; }
+  .hint { color: rgba(255, 246, 254, .6); font-size: 13px; text-align: center; margin: 0 0 18px; }
+  .pics { display: grid; gap: 12px; }
+  .pics h2 { font-size: 20px; font-weight: 800; color: #fff6fe; margin: 22px 0 0; padding-top: 16px;
+             border-top: 1px solid rgba(255, 246, 254, .18); }
+  .pics h2:first-child { margin-top: 4px; border-top: 0; padding-top: 0; }
+  .pics a { display: block; border-radius: 10px; overflow: hidden; background: #000; }
+  .pics img { width: 100%; display: block; }
+  .pics .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .more { margin-top: 22px; text-align: center; font-size: 14px; }
+  .more a { color: #ff4fb3; font-weight: 700; }
+</style>
+</head>
+<body>
+  <h1>Your photos</h1>
+  <p class="when" id="when"></p>
+  <button class="save" id="save">Save to Photos</button>
+  <p class="hint" id="hint">Or press and hold any picture to save it.</p>
+  <div class="pics" id="pics"></div>
+  <div class="more" id="more"></div>
+<script>
+const D = /*DATA*/;
+const $ = s => document.querySelector(s);
+$("#when").textContent = D.name;
+const items = [];
+if (D.gif) items.push({ label: "GIF", src: `${D.base}/animation.gif`, full: `${D.base}/animation.gif`, name: "animation.gif", type: "image/gif" });
+if (D.print) items.push({ label: "4-Up", src: `${D.base}/print_preview.jpg`, full: `${D.base}/${D.print}`, name: "4up.jpg", type: "image/jpeg" });
+for (const i of D.photos) items.push({ label: "Singles", src: `${D.base}/shot${i}_preview.jpg`, full: `${D.base}/shot${i}.jpg`, name: `photo${i + 1}.jpg`, type: "image/jpeg", single: true });
+
+const pics = $("#pics");
+let twoUp = null, lastLabel = null;
+for (const it of items) {
+  if (it.label !== lastLabel) {               // a heading above each group
+    const h = document.createElement("h2"); h.textContent = it.label; pics.appendChild(h); lastLabel = it.label; twoUp = null;
+  }
+  const a = document.createElement("a"); a.href = it.full; a.target = "_blank";
+  a.innerHTML = `<img src="${it.src}" alt="">`;
+  if (it.single) {                            // the four photos in two columns
+    if (!twoUp) { twoUp = document.createElement("div"); twoUp.className = "two"; pics.appendChild(twoUp); }
+    twoUp.appendChild(a);
+  } else pics.appendChild(a);
+}
+if (D.dropbox) $("#more").innerHTML = `Problem saving? <a href="${D.dropbox}">Open in Dropbox</a>`;
+
+// One tap saves everything to the camera roll (iPhone and Android share sheet with files).
+const btn = $("#save");
+async function saveAll() {
+  btn.disabled = true; btn.textContent = "Getting your photos…";
+  try {
+    const files = [];
+    for (const it of items) {
+      const blob = await (await fetch(it.full)).blob();
+      files.push(new File([blob], it.name, { type: it.type }));
+    }
+    if (navigator.canShare && navigator.canShare({ files })) {
+      await navigator.share({ files });
+      btn.textContent = "Saved";
+    } else {
+      $("#hint").textContent = "Press and hold each picture, then choose Save.";
+      btn.textContent = "Save to Photos";
+    }
+  } catch (e) {
+    if (e && e.name !== "AbortError") $("#hint").textContent = "Press and hold each picture, then choose Save.";
+    btn.textContent = "Save to Photos";
+  }
+  btn.disabled = false;
+}
+btn.onclick = saveAll;
+</script>
+</body>
+</html>

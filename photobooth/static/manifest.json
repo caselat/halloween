@@ -1,0 +1,9 @@
+{
+  "name": "Photobooth",
+  "short_name": "Photobooth",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0d0c0b",
+  "theme_color": "#0d0c0b"
+}

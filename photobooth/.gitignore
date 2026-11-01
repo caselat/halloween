@@ -1,0 +1,9 @@
+# per-machine and per-event files, never commit
+dropbox.json
+tunnel.json
+sessions/
+archive/
+party/
+__pycache__/
+EDSDK*.dll
+*.tmp
