@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Party GIF Cycler</title>
+<style>
+  :root {
+    --bg: #000;
+    --fg: #f4f4f4;
+    --muted: #8c8c8c;
+    --line: #262626;
+    --field: #0d0d0d;
+    --field-focus: #141414;
+    --accent: #ffffff;
+    --accent-fg: #000;
+    --danger: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: ui-sans-serif, -apple-system, "SF Pro Text", "Helvetica Neue", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; font-size: 15px; line-height: 1.4;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  a { color: var(--muted); }
+
+  /* ---------- Setup ---------- */
+  #setup {
+    position: fixed; inset: 0; z-index: 20; overflow-y: auto;
+    background: rgba(0,0,0,0.94); display: flex; justify-content: center;
+    padding: 56px 24px 72px;
+  }
+  #setup.hidden { display: none; }
+  .panel { width: 100%; max-width: 520px; }
+  .eyebrow { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+  h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 6px; }
+  .lede { color: var(--muted); margin: 0 0 36px; }
+  .section { margin-bottom: 30px; }
+  .section-label { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+  .kw { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .kw .n { width: 18px; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; text-align: right; }
+  input[type=text], input[type=password], select {
+    width: 100%; background: var(--field); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px 14px; outline: none; transition: border-color .15s, background .15s;
+  }
+  input[type=text]:focus, input[type=password]:focus, select:focus { border-color: #555; background: var(--field-focus); }
+  select { appearance: none; -webkit-appearance: none; padding-right: 36px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%238c8c8c' stroke-width='1.5'/></svg>");
+    background-repeat: no-repeat; background-position: right 14px center; }
+  .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+  .row { display: flex; gap: 14px; }
+  .row > * { flex: 1; }
+  .opt { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .opt:last-child { border-bottom: 0; }
+  .opt label { color: var(--fg); }
+  .opt select { width: auto; min-width: 140px; padding: 8px 32px 8px 12px; }
+  .check { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+  .check input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .sw { width: 38px; height: 22px; border-radius: 11px; background: #333; position: relative; transition: background .15s; flex: none; }
+  .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+  .check input:checked + .sw { background: #fff; }
+  .check input:checked + .sw::after { background: #000; transform: translateX(16px); }
+  .check input:focus-visible + .sw { outline: 2px solid #666; outline-offset: 2px; }
+  .actions { display: flex; gap: 10px; margin-top: 8px; }
+  .btn {
+    border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 14px 18px;
+    cursor: pointer; letter-spacing: 0.04em; transition: background .15s, border-color .15s;
+  }
+  .btn:hover { background: #151515; border-color: #444; }
+  .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; flex: 1.4; }
+  .btn.primary:hover { background: #e6e6e6; }
+  .btn.secondary { flex: 1; }
+  .btn.small { padding: 8px 12px; font-size: 13px; }
+  #error { color: var(--danger); font-size: 13.5px; min-height: 20px; margin-top: 14px; }
+  .attribution { margin-top: 44px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
+  .attribution a { text-decoration: none; }
+  .attribution a:hover { color: var(--fg); }
+
+  /* ---------- Stage ---------- */
+  #stage { position: fixed; inset: 0; background: #000; overflow: hidden; z-index: 10; }
+  #stage.hidden { display: none; }
+  #stage.nocursor { cursor: none; }
+  #stage:focus { outline: none; }
+  #stage:fullscreen { background: #000; }
+  .slot { position: absolute; inset: 0; opacity: 0; transition: opacity 260ms ease; pointer-events: none; }
+  .slot.active { opacity: 1; }
+  .slot video, .slot img { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+  #stage.cover .slot video, #stage.cover .slot img { object-fit: cover; }
+
+  #hud {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 24px;
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+    background: linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0));
+    opacity: 0; transition: opacity 200ms; pointer-events: none;
+  }
+  #hud.show { opacity: 1; pointer-events: auto; }
+  .hud-info { font-size: 12.5px; color: rgba(255,255,255,0.75); font-variant-numeric: tabular-nums; letter-spacing: 0.03em; }
+  .hud-info span + span::before { content: "·"; margin: 0 8px; color: rgba(255,255,255,0.4); }
+  .hud-btns { display: flex; gap: 6px; }
+  .hb {
+    background: rgba(20,20,20,0.75); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+    padding: 9px 13px; cursor: pointer; font-size: 13px; backdrop-filter: blur(8px);
+  }
+  .hb:hover { background: rgba(40,40,40,0.85); }
+
+  #tap {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.85);
+  }
+  #tap.show { display: flex; }
+  #tap button { padding: 18px 28px; }
+
+  #toast {
+    position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%);
+    background: rgba(20,20,20,0.85); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+    padding: 10px 16px; font-size: 13px; opacity: 0; transition: opacity 200ms; pointer-events: none; white-space: nowrap;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- ============ SETUP ============ -->
+<div id="setup">
+  <div class="panel">
+    <p class="eyebrow">Party GIF Cycler</p>
+    <h1>Five keywords. Endless GIFs.</h1>
+    <p class="lede">Each GIF plays three times, then the next one takes over. Put it on the big screen and walk away.</p>
+
+    <div class="section">
+      <div class="section-label">Keywords</div>
+      <div class="kw"><span class="n">1</span><input type="text" id="kw1" placeholder="Halloween" autocomplete="off"></div>
+      <div class="kw"><span class="n">2</span><input type="text" id="kw2" placeholder="Skulls" autocomplete="off"></div>
+      <div class="kw"><span class="n">3</span><input type="text" id="kw3" placeholder="Skeleton dancing" autocomplete="off"></div>
+      <div class="kw"><span class="n">4</span><input type="text" id="kw4" placeholder="Creepy vintage" autocomplete="off"></div>
+      <div class="kw"><span class="n">5</span><input type="text" id="kw5" placeholder="Horror movie" autocomplete="off"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">GIPHY API key</div>
+      <input type="password" id="apikey" placeholder="Paste your key" autocomplete="off" spellcheck="false">
+      <div class="hint" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+        <label class="check" style="font-size:12.5px;"><input type="checkbox" id="rememberKey" checked><span class="sw"></span>Remember key on this computer</label>
+        <a href="https://developers.giphy.com/dashboard/" target="_blank" rel="noopener">Get a free key</a>
+      </div>
+      <div class="hint">The key is stored only in this browser's local storage. Don't use this setting on a shared or public deployment.</div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Playback</div>
+      <div class="opt"><label for="shuffle">Shuffle</label><label class="check"><input type="checkbox" id="shuffle" checked><span class="sw"></span></label></div>
+      <div class="opt"><label for="fit">Fit</label><select id="fit"><option value="contain">Contain (show everything)</option><option value="cover">Cover (fill the screen)</option></select></div>
+      <div class="opt"><label for="rating">Rating</label><select id="rating"><option value="g">G</option><option value="pg">PG</option><option value="pg-13" selected>PG-13</option><option value="r">R</option></select></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn primary" id="startBtn">START</button>
+      <button class="btn secondary" id="startFsBtn">Start fullscreen</button>
+      <button class="btn secondary" id="backBtn" style="display:none;">Back to stream</button>
+    </div>
+    <div id="error" role="alert"></div>
+
+    <div class="attribution">
+      <span>Space pause · ← → skip · F fullscreen · Esc exit</span>
+      <a href="https://giphy.com" target="_blank" rel="noopener">Powered by GIPHY</a>
+    </div>
+  </div>
+</div>
+
+<!-- ============ STAGE ============ -->
+<div id="stage" class="hidden" tabindex="-1">
+  <div class="slot" id="slot0"></div>
+  <div class="slot" id="slot1"></div>
+
+  <div id="hud">
+    <div class="hud-info"><span id="hudCount">GIF 0</span><span id="hudLoop">loop 0/3</span><span id="hudKw"></span></div>
+    <div class="hud-btns">
+      <button class="hb" id="hbPrev" title="Previous (←)">Prev</button>
+      <button class="hb" id="hbPlay" title="Pause / resume (Space)">Pause</button>
+      <button class="hb" id="hbNext" title="Next (→)">Next</button>
+      <button class="hb" id="hbFs" title="Fullscreen (F)">Fullscreen</button>
+      <button class="hb" id="hbSettings" title="Settings">Settings</button>
+    </div>
+  </div>
+
+  <div id="tap"><button class="btn primary" id="tapBtn">Click to start playback</button></div>
+  <div id="toast"></div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- Constants ----------
+  const LOOPS = 3;            // complete plays per GIF
+  const PAGE = 25;            // results per keyword per request
+  const RECENT = 30;          // how many recent GIFs to avoid repeating when recycling the pool
+  const LOW_WATER = 8;        // fetch more when the upcoming queue drops below this
+  const HISTORY_CAP = 400;    // keep memory flat during long sessions
+  const POOL_CAP = 2000;
+  const FADE_MS = 260;
+  const HUD_HIDE_MS = 2500;
+  const API_RETRY_MS = 30000; // wait this long before retrying GIPHY after a failed background fetch
+  const MAX_FAILS = 12;       // consecutive media failures before slowing down
+
+  const $ = (s) => document.querySelector(s);
+  const els = {
+    setup: $('#setup'), stage: $('#stage'), slots: [$('#slot0'), $('#slot1')],
+    hud: $('#hud'), hudCount: $('#hudCount'), hudLoop: $('#hudLoop'), hudKw: $('#hudKw'),
+    tap: $('#tap'), toast: $('#toast'), error: $('#error'),
+    kws: [1, 2, 3, 4, 5].map((i) => $('#kw' + i)),
+    apikey: $('#apikey'), rememberKey: $('#rememberKey'), shuffle: $('#shuffle'), fit: $('#fit'), rating: $('#rating'),
+    startBtn: $('#startBtn'), startFsBtn: $('#startFsBtn'), backBtn: $('#backBtn'),
+    hbPrev: $('#hbPrev'), hbPlay: $('#hbPlay'), hbNext: $('#hbNext'), hbFs: $('#hbFs'), hbSettings: $('#hbSettings'), tapBtn: $('#tapBtn'),
+  };
+
+  // ---------- Storage ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('pgc:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('pgc:' + k, JSON.stringify(v)); } catch {} },
+    del(k) { try { localStorage.removeItem('pgc:' + k); } catch {} },
+  };
+
+  // ---------- State ----------
+  const state = {
+    keywords: [], apiKey: '', rating: 'pg-13', shuffle: true,
+    session: 0,          // bumps on every START; async work from older sessions is discarded
+    token: 0,            // bumps on every item change; stale media events are ignored
+    playing: false, paused: false,
+    offsets: {}, exhausted: {}, fetching: false, retryAt: 0,
+    seen: new Set(), pool: [], upcoming: [],
+    history: [], pos: -1, item: null, loop: 0,
+    activeSlot: 0, failures: 0, played: 0,
+    timers: [], preloadTimer: null, safety: null,
+  };
+
+  // ---------- Small utilities ----------
+  const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const pick = (...c) => c.find((v) => typeof v === 'string' && v.length > 0) || null;
+
+  // Pausable timeout: pause() keeps the remaining time, resume() continues from there.
+  function makeTimer(ms, fn) {
+    const t = { remaining: ms, started: 0, id: null, done: false };
+    t.start = () => { if (t.done || t.id !== null) return; t.started = Date.now(); t.id = setTimeout(() => { t.id = null; t.done = true; fn(); }, t.remaining); };
+    t.pause = () => { if (t.id === null) return; clearTimeout(t.id); t.id = null; t.remaining = Math.max(0, t.remaining - (Date.now() - t.started)); };
+    t.clear = () => { if (t.id !== null) clearTimeout(t.id); t.id = null; t.done = true; };
+    t.start();
+    state.timers.push(t);
+    return t;
+  }
+  function clearTimers() { state.timers.forEach((t) => t.clear()); state.timers = []; }
+  function pauseTimers() { state.timers.forEach((t) => t.pause()); }
+  function resumeTimers() { state.timers.forEach((t) => t.start()); }
+
+  // Avoid two GIFs from the same keyword back to back where possible.
+  function spread(arr) {
+    for (let i = 1; i < arr.length; i++) {
+      if (arr[i].keyword !== arr[i - 1].keyword) continue;
+      const j = arr.findIndex((x, k) => k > i && x.keyword !== arr[i - 1].keyword);
+      if (j > 0) [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  let toastTimer = null;
+  function toast(msg, ms = 3000) {
+    els.toast.textContent = msg; els.toast.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => els.toast.classList.remove('show'), ms);
+  }
+
+  // ---------- GIPHY ----------
+  function toItem(g, keyword) {
+    const im = g && g.images ? g.images : {};
+    const r = (name) => (im[name] && typeof im[name] === 'object') ? im[name] : {};
+    // Full-resolution MP4 first; small previews only as a last resort.
+    const mp4 = pick(r('original_mp4').mp4, r('original').mp4, r('hd').mp4, r('downsized_small').mp4, r('preview').mp4);
+    const gif = pick(r('original').url, r('downsized_large').url, r('downsized_medium').url, r('downsized').url, r('fixed_height').url);
+    if (!g || !g.id || (!mp4 && !gif)) return null;
+    return { id: String(g.id), keyword, mp4, gif, frames: parseInt(r('original').frames, 10) || 0 };
+  }
+
+  async function searchGiphy(keyword, offset) {
+    const u = new URL('https://api.giphy.com/v1/gifs/search');
+    u.search = new URLSearchParams({ api_key: state.apiKey, q: keyword, limit: String(PAGE), offset: String(offset), rating: state.rating, lang: 'en' }).toString();
+    let res;
+    try { res = await fetch(u.toString()); }
+    catch (e) { const err = new Error("Couldn't reach GIPHY. Check the internet connection."); err.kind = 'network'; throw err; }
+    if (!res.ok) {
+      const err = new Error(
+        res.status === 401 || res.status === 403 ? 'GIPHY rejected the API key.' :
+        res.status === 429 ? 'GIPHY rate limit hit. Wait a minute and try again.' :
+        'GIPHY returned an error (HTTP ' + res.status + ').');
+      err.status = res.status; throw err;
+    }
+    let json;
+    try { json = await res.json(); } catch { throw new Error('GIPHY returned an unreadable response.'); }
+    if (!json || !Array.isArray(json.data)) throw new Error('GIPHY returned an unexpected response.');
+    const total = json.pagination && typeof json.pagination.total_count === 'number' ? json.pagination.total_count : Infinity;
+    return { items: json.data.map((g) => toItem(g, keyword)).filter(Boolean), total };
+  }
+
+  // Fetch one page for every keyword, interleave, dedupe, shuffle, and add to the queue.
+  // Returns the number of new items added. Throws only if every keyword failed.
+  async function fetchBatch() {
+    const session = state.session;
+    const kws = state.keywords.filter((k) => !state.exhausted[k]);
+    if (kws.length === 0) return 0;
+    const results = await Promise.allSettled(kws.map((k) => searchGiphy(k, state.offsets[k] || 0)));
+    if (session !== state.session) return 0;
+
+    const lists = []; let firstErr = null; let okCount = 0;
+    results.forEach((r, i) => {
+      const k = kws[i];
+      if (r.status === 'rejected') { if (!firstErr) firstErr = r.reason; return; }
+      okCount++;
+      const fresh = r.value.items.filter((it) => !state.seen.has(it.id));
+      state.offsets[k] = (state.offsets[k] || 0) + PAGE;
+      if (r.value.items.length < PAGE || state.offsets[k] >= r.value.total) state.exhausted[k] = true;
+      if (fresh.length) lists.push(fresh);
+    });
+    if (okCount === 0 && firstErr) throw firstErr;
+
+    // Round-robin so every keyword gets equal representation.
+    const merged = [];
+    for (let i = 0; lists.some((l) => i < l.length); i++) lists.forEach((l) => { if (i < l.length) merged.push(l[i]); });
+    merged.forEach((it) => { state.seen.add(it.id); state.pool.push(it); });
+    if (state.pool.length > POOL_CAP) state.pool = state.pool.slice(-POOL_CAP);
+    const batch = state.shuffle ? spread(shuffle(merged)) : merged;
+    state.upcoming.push(...batch);
+    return batch.length;
+  }
+
+  // When GIPHY is exhausted or unreachable, recycle the pool while avoiding the most recent plays.
+  function refillFromPool() {
+    if (state.pool.length === 0) return;
+    const recent = new Set(state.history.slice(-RECENT).map((it) => it.id));
+    let candidates = state.pool.filter((it) => !recent.has(it.id));
+    if (candidates.length === 0) candidates = state.pool.slice();
+    state.upcoming.push(...(state.shuffle ? spread(shuffle(candidates)) : candidates));
+  }
+
+  async function maybeRefill() {
+    if (state.fetching || state.upcoming.length >= LOW_WATER) return;
+    if (Date.now() < state.retryAt) return;
+    if (state.keywords.every((k) => state.exhausted[k])) return;
+    state.fetching = true;
+    const session = state.session;
+    try { await fetchBatch(); }
+    catch (e) {
+      if (session === state.session) { state.retryAt = Date.now() + API_RETRY_MS; toast('GIPHY unavailable, replaying what we have'); }
+    } finally { if (session === state.session) state.fetching = false; }
+  }
+
+  // ---------- GIF fallback duration ----------
+  // Browsers don't report when an animated GIF finishes a loop, so for GIF-only items we
+  // read the frame delays from the file itself and run a timer for three loops.
+  // If the file can't be read, we estimate from the frame count. This path is approximate.
+  async function gifLoopMs(item) {
+    try {
+      const res = await fetch(item.gif, { mode: 'cors' });
+      if (!res.ok) throw new Error('fetch');
+      const b = new Uint8Array(await res.arrayBuffer());
+      let p = 13;
+      if (b[10] & 0x80) p += 3 * (1 << ((b[10] & 7) + 1));
+      let total = 0, frames = 0;
+      const skipSub = () => { while (p < b.length && b[p] !== 0) p += b[p] + 1; p++; };
+      while (p < b.length) {
+        const t = b[p++];
+        if (t === 0x3B) break;
+        if (t === 0x21) {
+          const label = b[p++];
+          if (label === 0xF9) { const d = b[p + 2] | (b[p + 3] << 8); total += (d < 2 ? 10 : d); frames++; p += b[p] + 1; p++; }
+          else skipSub();
+        } else if (t === 0x2C) {
+          const packed = b[p + 8]; p += 9;
+          if (packed & 0x80) p += 3 * (1 << ((packed & 7) + 1));
+          p++; skipSub();
+        } else break;
+      }
+      if (frames > 0 && total > 0) return Math.max(500, total * 10);
+    } catch {}
+    return item.frames > 0 ? Math.max(1000, item.frames * 80) : 6000;
+  }
+
+  // ---------- Media elements ----------
+  function createMedia(item) {
+    let el;
+    if (item.mp4) {
+      el = document.createElement('video');
+      el.muted = true; el.defaultMuted = true; el.playsInline = true; el.setAttribute('playsinline', '');
+      el.preload = 'auto'; el.disablePictureInPicture = true;
+      // No `loop` attribute: we count `ended` events ourselves.
+      el.addEventListener('ended', () => onEnded(el));
+      el.addEventListener('error', () => onMediaError(el, 'video'));
+      el.addEventListener('playing', () => { if (isCurrent(el)) state.failures = 0; });
+      el.addEventListener('loadedmetadata', () => { if (isCurrent(el)) armSafety(el); });
+      el.src = item.mp4;
+    } else {
+      el = document.createElement('img');
+      el.decoding = 'async'; el.alt = '';
+      el.addEventListener('error', () => onMediaError(el, 'gif'));
+      el.src = item.gif;
+    }
+    el.dataset.id = item.id;
+    return el;
+  }
+
+  function dispose(slot) {
+    const el = slot.firstElementChild;
+    if (!el) return;
+    el.dataset.token = '';
+    if (el.tagName === 'VIDEO') { try { el.pause(); el.removeAttribute('src'); el.load(); } catch {} }
+    else { el.removeAttribute('src'); }
+    slot.replaceChildren();
+  }
+
+  const isCurrent = (el) => el.isConnected && el.dataset.token === String(state.token) && state.playing;
+
+  function attemptPlay(el) {
+    if (!isCurrent(el) || state.paused) return;
+    const p = el.play();
+    if (!p || !p.catch) return;
+    p.catch((e) => {
+      if (!isCurrent(el)) return;
+      if (e && e.name === 'NotAllowedError') { els.tap.classList.add('show'); return; }
+      if (e && e.name === 'AbortError') return;
+      onMediaError(el, 'play');
+    });
+  }
+
+  function onEnded(el) {
+    if (!isCurrent(el)) return;
+    state.loop++;
+    if (state.loop < LOOPS) { try { el.currentTime = 0; } catch {} attemptPlay(el); updateHud(); }
+    else next();
+  }
+
+  function onMediaError(el, kind) {
+    if (!isCurrent(el)) return;
+    state.failures++;
+    if (state.failures >= MAX_FAILS) {
+      toast('Trouble loading media, retrying…');
+      makeTimer(3000, () => next());
+    } else next();
+  }
+
+  // If a video never fires `ended` (stalled network, decoder hiccup), move on anyway.
+  function armSafety(el) {
+    if (state.safety) state.safety.clear();
+    const known = isFinite(el.duration) && el.duration > 0;
+    const d = known ? el.duration : 20;   // re-armed with the real duration once metadata loads
+    state.safety = makeTimer(Math.max(20000, d * LOOPS * 1000 + 10000), () => { if (isCurrent(el)) { toast('Skipping a stuck GIF'); next(); } });
+  }
+
+  // ---------- Showing items ----------
+  function show(item) {
+    const token = ++state.token;
+    state.item = item; state.loop = 0; state.played++;
+    clearTimers(); clearTimeout(state.preloadTimer);
+
+    const inSlot = els.slots[1 - state.activeSlot];
+    const outSlot = els.slots[state.activeSlot];
+    let el = inSlot.firstElementChild;
+    if (!el || el.dataset.id !== item.id) { dispose(inSlot); el = createMedia(item); inSlot.appendChild(el); }
+    el.dataset.token = String(token);
+
+    state.activeSlot = 1 - state.activeSlot;
+    inSlot.classList.add('active'); outSlot.classList.remove('active');
+
+    if (el.tagName === 'VIDEO') {
+      try { if (el.currentTime > 0) el.currentTime = 0; } catch {}
+      attemptPlay(el);
+      armSafety(el);
+    } else {
+      gifLoopMs(item).then((ms) => {
+        if (state.token !== token) return;
+        state.loop = 1; updateHud();
+        const tick = (n) => { if (state.token !== token) return; if (n >= LOOPS) { next(); return; } state.loop = n + 1; updateHud(); makeTimer(ms, () => tick(n + 1)); };
+        makeTimer(ms, () => tick(1));
+      });
+    }
+    updateHud();
+
+    // Once the crossfade is done, clear the old media and preload the next item into the free slot.
+    state.preloadTimer = setTimeout(() => {
+      if (state.token !== token) return;
+      dispose(outSlot);
+      const nxt = state.history[state.pos + 1] || state.upcoming[0];
+      if (nxt && nxt.id !== item.id) { const pel = createMedia(nxt); pel.dataset.token = ''; outSlot.appendChild(pel); if (pel.tagName === 'VIDEO') { try { pel.load(); } catch {} } }
+    }, FADE_MS + 80);
+  }
+
+  function next() {
+    if (!state.playing) return;
+    if (state.pos < state.history.length - 1) { state.pos++; }
+    else {
+      if (state.upcoming.length === 0) refillFromPool();
+      if (state.upcoming.length === 0) { toast('No GIFs available'); maybeRefill(); return; }
+      state.history.push(state.upcoming.shift());
+      if (state.history.length > HISTORY_CAP) state.history.splice(0, state.history.length - HISTORY_CAP);
+      state.pos = state.history.length - 1;
+    }
+    show(state.history[state.pos]);
+    maybeRefill();
+  }
+
+  function prev() {
+    if (!state.playing || state.pos <= 0) return;
+    state.pos--; show(state.history[state.pos]);
+  }
+
+  function togglePause(force) {
+    if (!state.playing) return;
+    const wantPause = typeof force === 'boolean' ? force : !state.paused;
+    if (wantPause === state.paused) return;
+    state.paused = wantPause;
+    const el = els.slots[state.activeSlot].firstElementChild;
+    if (state.paused) { pauseTimers(); if (el && el.tagName === 'VIDEO') el.pause(); }
+    else { resumeTimers(); if (el && el.tagName === 'VIDEO') attemptPlay(el); }
+    updateHud();
+  }
+
+  function updateHud() {
+    els.hudCount.textContent = 'GIF ' + state.played;
+    els.hudLoop.textContent = 'loop ' + Math.min(LOOPS, Math.max(1, state.loop + (state.item && !state.item.mp4 ? 0 : 1))) + '/' + LOOPS;
+    els.hudKw.textContent = state.item ? state.item.keyword : '';
+    els.hbPlay.textContent = state.paused ? 'Play' : 'Pause';
+    els.hbFs.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen';
+  }
+
+  // ---------- Start / settings ----------
+  function readForm() {
+    state.keywords = els.kws.map((i) => i.value.trim()).filter(Boolean);
+    state.apiKey = els.apikey.value.trim();
+    state.rating = els.rating.value;
+    state.shuffle = els.shuffle.checked;
+    els.stage.classList.toggle('cover', els.fit.value === 'cover');
+    store.set('keywords', els.kws.map((i) => i.value));
+    store.set('shuffle', state.shuffle); store.set('fit', els.fit.value); store.set('rating', state.rating);
+    store.set('rememberKey', els.rememberKey.checked);
+    if (els.rememberKey.checked) store.set('apiKey', state.apiKey); else store.del('apiKey');
+  }
+
+  function loadForm() {
+    const kws = store.get('keywords', []);
+    els.kws.forEach((i, n) => { i.value = typeof kws[n] === 'string' ? kws[n] : ''; });
+    els.shuffle.checked = store.get('shuffle', true);
+    els.fit.value = store.get('fit', 'contain');
+    els.rating.value = store.get('rating', 'pg-13');
+    els.rememberKey.checked = store.get('rememberKey', true);
+    els.apikey.value = store.get('apiKey', '');
+  }
+
+  function resetStream() {
+    state.session++; state.token++;
+    clearTimers(); clearTimeout(state.preloadTimer);
+    els.slots.forEach((s) => { dispose(s); s.classList.remove('active'); });
+    Object.assign(state, { offsets: {}, exhausted: {}, fetching: false, retryAt: 0, seen: new Set(), pool: [], upcoming: [], history: [], pos: -1, item: null, loop: 0, failures: 0, played: 0, paused: false, playing: false });
+    els.tap.classList.remove('show');
+  }
+
+  async function start(fullscreen) {
+    readForm();
+    els.error.textContent = '';
+    if (state.keywords.length === 0) { els.error.textContent = 'Enter at least one keyword.'; els.kws[0].focus(); return; }
+    if (!state.apiKey) { els.error.textContent = 'Enter a GIPHY API key.'; els.apikey.focus(); return; }
+
+    resetStream();
+    const session = state.session;
+    els.setup.classList.add('hidden'); els.stage.classList.remove('hidden');
+    if (fullscreen) enterFullscreen();   // same user gesture as the click
+    toast('Finding GIFs…', 10000);
+
+    try { await fetchBatch(); }
+    catch (e) {
+      if (session !== state.session) return;
+      showSetup(e.message || 'Something went wrong talking to GIPHY.');
+      return;
+    }
+    if (session !== state.session) return;
+    if (state.upcoming.length === 0) { showSetup('No GIFs found for those keywords. Try different words or a looser rating.'); return; }
+
+    els.toast.classList.remove('show');
+    state.playing = true;
+    els.backBtn.style.display = '';
+    next();
+    els.stage.focus();
+  }
+
+  function showSetup(err) {
+    if (document.fullscreenElement) { try { document.exitFullscreen(); } catch {} }
+    els.setup.classList.remove('hidden');
+    els.error.textContent = err || '';
+    if (!state.playing) { els.stage.classList.add('hidden'); els.backBtn.style.display = 'none'; }
+  }
+
+  function enterFullscreen() {
+    if (document.fullscreenElement) return;
+    const p = els.stage.requestFullscreen && els.stage.requestFullscreen();
+    if (p && p.catch) p.catch(() => toast('Fullscreen was blocked. Press F while the stream is playing.'));
+  }
+  function toggleFullscreen() {
+    if (document.fullscreenElement) { try { document.exitFullscreen(); } catch {} } else enterFullscreen();
+  }
+
+  // ---------- HUD visibility / cursor ----------
+  let hudTimer = null;
+  function wakeHud() {
+    els.hud.classList.add('show'); els.stage.classList.remove('nocursor');
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(() => { if (!els.hud.matches(':hover')) { els.hud.classList.remove('show'); els.stage.classList.add('nocursor'); } }, HUD_HIDE_MS);
+  }
+
+  // ---------- Wiring ----------
+  els.startBtn.addEventListener('click', () => start(false));
+  els.startFsBtn.addEventListener('click', () => start(true));
+  els.backBtn.addEventListener('click', () => { els.setup.classList.add('hidden'); els.error.textContent = ''; els.stage.focus(); });
+  els.kws.concat([els.apikey]).forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') start(false); }));
+
+  els.hbPrev.addEventListener('click', prev);
+  els.hbNext.addEventListener('click', next);
+  els.hbPlay.addEventListener('click', () => togglePause());
+  els.hbFs.addEventListener('click', toggleFullscreen);
+  els.hbSettings.addEventListener('click', () => showSetup(''));
+  els.tapBtn.addEventListener('click', () => { els.tap.classList.remove('show'); const el = els.slots[state.activeSlot].firstElementChild; if (el && el.tagName === 'VIDEO') attemptPlay(el); });
+
+  els.stage.addEventListener('mousemove', wakeHud);
+  els.stage.addEventListener('click', (e) => { if (e.target === els.stage || e.target.classList.contains('slot')) wakeHud(); });
+  document.addEventListener('fullscreenchange', () => { updateHud(); if (document.fullscreenElement) wakeHud(); });
+
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (!state.playing || !els.setup.classList.contains('hidden')) return;
+    switch (e.key) {
+      case ' ': e.preventDefault(); togglePause(); break;
+      case 'ArrowRight': e.preventDefault(); next(); break;
+      case 'ArrowLeft': e.preventDefault(); prev(); break;
+      case 'f': case 'F': enterFullscreen(); break;
+      default: return;
+    }
+    wakeHud();
+  });
+
+  window.addEventListener('unhandledrejection', (e) => { e.preventDefault(); });
+
+  loadForm();
+  if (!els.apikey.value) els.apikey.focus(); else els.kws[0].focus();
+})();
+</script>
+</body>
+</html>
