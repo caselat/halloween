@@ -18,7 +18,7 @@ from camera import make_camera
 from export import Exporter
 from printing import LAYOUTS, compose, crop_to_cell, list_printers, print_image, trim_bleed
 
-VERSION = "2026-10-25.41"  # bump with every update; shown in Terminal and the screen corner
+VERSION = "2026-10-25.42"  # bump with every update; shown in Terminal and the screen corner
 ROOT = Path(__file__).resolve().parent
 SESSIONS = ROOT / "sessions"
 SESSIONS.mkdir(exist_ok=True)
@@ -51,6 +51,8 @@ DEFAULTS = {
                            # 90/270 = camera on its side, everything comes out portrait
     "admin_pin": "1321",   # tap the corner status text 5 times, enter this, to open the admin panel
     "sounds": True,        # countdown beeps and shutter tone on the screen
+    "party_title": "Party photos",   # headline of the end-of-party page
+    "party_video_seconds": 30,       # the video of the night runs this long
     "public_url": "",      # a fixed public address for guest pages, if you run your own tunnel; else the
                            # launcher's Cloudflare quick tunnel (tunnel.json) is used when it's running
     "liveview_fps": 30,    # frames per second sent to each screen

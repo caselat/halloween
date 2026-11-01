@@ -10,6 +10,8 @@ can also be dropped onto any static host (GitHub Pages and the like) as-is.
 
 import json
 import shutil
+import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -51,6 +53,37 @@ def _compilation(frames, out, fps, width):
     return True
 
 
+def _video(frames, out, seconds, width):
+    """Every photo of the night as one MP4 that runs `seconds` long. Needs the ffmpeg that
+    imageio-ffmpeg installs; returns False (so the GIF is used) if it's missing."""
+    try:
+        import imageio_ffmpeg
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return False
+    if not frames:
+        return False
+    per = min(1.0, max(0.12, seconds / len(frames)))   # seconds per photo
+    with tempfile.TemporaryDirectory() as tmp:
+        size = None
+        for n, p in enumerate(frames):
+            im = ImageOps.exif_transpose(Image.open(p)).convert("RGB")
+            if size is None:
+                w, h = im.size
+                size = (width, max(2, round(width * h / w)) // 2 * 2)
+            im = ImageOps.pad(im, size, Image.LANCZOS, color="black")   # all frames the same size
+            im.save(Path(tmp) / f"f{n:05d}.jpg", quality=90)
+        cmd = [ffmpeg, "-y", "-loglevel", "error", "-framerate", f"{1 / per:.4f}", "-i", str(Path(tmp) / "f%05d.jpg"),
+               "-r", "30", "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
+               "-movflags", "+faststart", str(out)]
+        try:
+            subprocess.run(cmd, check=True, timeout=600)
+        except Exception as e:
+            print(f"[party] video failed, using a GIF instead: {e}")
+            return False
+    return out.exists()
+
+
 def build(root: Path, sessions: Path, cfg, read_meta, exporter, public_base, title="Party photos"):
     """Make the page now (fast), then upload it to Dropbox in the background.
     Returns the new token; poll status() for the rest."""
@@ -89,10 +122,11 @@ def build(root: Path, sessions: Path, cfg, read_meta, exporter, public_base, tit
             frames.append(sd / f"photo{i + 1}.jpg")
         items.append(item)
 
-    _set(sessions=len(items), message=f"Making the GIF of the night ({len(frames)} photos)…")
-    has_gif = _compilation(frames, out / "party.gif", cfg.get("gif_fps", 4), cfg.get("party_gif_width", 480))
+    _set(sessions=len(items), message=f"Making the video of the night ({len(frames)} photos)…")
+    video = _video(frames, out / "party.mp4", cfg.get("party_video_seconds", 30), cfg.get("party_video_width", 720))
+    has_gif = False if video else _compilation(frames, out / "party.gif", cfg.get("gif_fps", 4), cfg.get("party_gif_width", 480))
 
-    data = {"title": title, "when": time.strftime("%B %d, %Y"), "gif": "party.gif" if has_gif else None,
+    data = {"title": title, "video": "party.mp4" if video else None, "gif": "party.gif" if has_gif else None,
             "sessions": list(reversed(items)), "dropbox": None, "count": len(frames)}
     template = (root / "static" / "party.html").read_text(encoding="utf-8")
 

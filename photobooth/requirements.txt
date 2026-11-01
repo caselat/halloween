@@ -3,3 +3,4 @@ pillow>=10.0
 pywin32>=306; sys_platform == "win32"
 opencv-python>=4.8; sys_platform == "darwin"
 segno>=1.6
+imageio-ffmpeg>=0.5
