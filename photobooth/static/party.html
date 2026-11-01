@@ -71,13 +71,13 @@ for (const s of D.sessions) {
   el.innerHTML = (s.gif ? `<a class="gif" href="${s.gif}" target="_blank"><img src="${s.gif}" loading="lazy" alt=""></a>` : "") +
     (s.print ? `<details><summary>4-Up</summary><div class="pics">${pic(s.print)}</div></details>` : "") +
     (s.shots.length ? `<details><summary>Singles</summary><div class="pics two">${s.shots.map(pic).join("")}</div></details>` : "") +
-    `<button class="btn">Save this set to Photos</button>`;
+    `<button class="btn">Save</button>`;
   el.querySelector("button").onclick = e => {
     const list = [];
     if (s.gif) list.push({ src: s.gif, name: `${s.id}_animation.gif`, type: "image/gif" });
     if (s.print) list.push({ src: s.print, name: `${s.id}_4up.jpg`, type: "image/jpeg" });
     s.shots.forEach((p, i) => list.push({ src: p, name: `${s.id}_photo${i + 1}.jpg`, type: "image/jpeg" }));
-    shareFiles(list, e.target, "Save this set to Photos");
+    shareFiles(list, e.target, "Save");
   };
   sets.appendChild(el);
 }
